@@ -19,6 +19,7 @@
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+#include <pcl/kdtree/kdtree_flann.h>
 
 #include "PointCloudTools.h"
 
@@ -73,6 +74,9 @@ public:
   float computeCloudWeight(const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud, const float tx, const float ty,
                            const float tz, const float roll, const float pitch, const float yaw) const;
 
+  float computeCloudWeight(const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud, const float tx, const float ty,
+                           const float tz, const float roll, const float pitch, const float yaw, const int sampleNun) const;
+
   /*! \brief To check if the particle is into the map.
    *
    * \param x Particle x-axis position.
@@ -87,6 +91,8 @@ public:
   bool isIntoMap(const float x, const float y, const float z) const;
 
   bool loadPCD(std::string file_path,pcl::PointCloud < pcl::PointXYZI>::Ptr& input);
+
+  bool updateMap(const float x, const float y, const float z,const float radius = 2,const float voxel_size = 0.5);
 
   /*! \brief To create a vector that contains the grid data.
    *
@@ -110,6 +116,8 @@ public:
   std::vector<pcl::PointCloud<PointType>::Ptr>  outlier_keyframes;
   pcl::PointCloud<PointType>::Ptr  keyposes_3d;
 
+  pcl::KdTreeFLANN<PointType>::Ptr kd_map_ptr_;
+  pcl::KdTreeFLANN<PointType>::Ptr kd_pose_ptr_;
 private:
   /*! \brief To save the file of map like grid.
    *

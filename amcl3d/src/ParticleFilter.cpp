@@ -138,6 +138,33 @@ void ParticleFilter::update(const pcl::PointCloud<PointType>::Ptr& cloud)
   LOG_INFO(g_log,"Update time:"<<VSCOMMON::toc("Update") * 1000<<" ms");
 }
 
+void ParticleFilter::update(const pcl::PointCloud<PointType>::Ptr& cloud,const int& sampleNum)
+{
+  /*  Incorporate measurements */
+  VSCOMMON::tic("Update");
+  for (uint32_t i = 0; i < p_.size(); ++i)
+  {
+    /*  Get particle information */
+    float tx = p_[i].x;
+    float ty = p_[i].y;
+    float tz = p_[i].z;
+
+    //  Evaluate the weight of the point cloud 
+    //  TODO: ground and non ground points compute weight respectively
+
+    p_[i].w = grid3d_->computeCloudWeight(cloud, tx, ty, tz, p_[i].roll, p_[i].pitch, p_[i].yaw, sampleNum);  
+  }
+  double max_log_likelihood = p_[0].w;
+  for(uint32_t i = 1;i < p_.size();++i)
+    if(p_[i].w > max_log_likelihood)
+      max_log_likelihood = p_[i].w;
+  for (uint32_t i = 0; i < p_.size(); ++i)
+  {
+    p_[i].w = std::exp(p_[i].w - max_log_likelihood);
+  }
+  LOG_INFO(g_log,"Update time:"<<VSCOMMON::toc("Update") * 1000<<" ms");
+}
+
 void ParticleFilter::particleNormalize()
 {
   /*  Normalize all weights */

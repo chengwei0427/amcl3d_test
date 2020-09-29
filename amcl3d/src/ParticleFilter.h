@@ -192,6 +192,7 @@ public:
    * for all particles and finds the average for the composition of the UAV pose.
    */
   void update(const pcl::PointCloud<PointType>::Ptr& cloud);
+  void update(const pcl::PointCloud<PointType>::Ptr& cloud,const int& sampleNum);
 
   void particleNormalize();
 

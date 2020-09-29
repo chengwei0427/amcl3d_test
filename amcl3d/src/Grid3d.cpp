@@ -119,6 +119,11 @@ bool Grid3d::loadPCD(std::string file_path,pcl::PointCloud < PointType>::Ptr& in
       *showcloud += *(outlier_keyframes[i]);
       *showcloud += *(corner_keyframes[i]);
     }
+    //  update map ptr for kdtree radius
+    pcl::KdTreeFLANN<PointType>::Ptr kd_pose_ptr(new pcl::KdTreeFLANN<PointType>());
+    kd_pose_ptr_ = kd_pose_ptr;
+    kd_pose_ptr_->setInputCloud(keyposes_3d);
+
     pcl::VoxelGrid<PointType> downsample;
     downsample.setLeafSize(0.3, 0.3, 0.3);
     downsample.setInputCloud(showcloud);
@@ -156,6 +161,10 @@ bool Grid3d::open(const std::string& map_path, const double sensor_dev)
              <<", Z: "<<pc_info_->octo_min_z<<"to "<<pc_info_->octo_max_z
              <<", Res: "<<pc_info_->octo_resol<<", computePointCloud takes: "
              << time_computePC<<" ms. cloud size: "<< cloud->size());
+
+    pcl::KdTreeFLANN<PointType>::Ptr kd_map_ptr(new pcl::KdTreeFLANN<PointType>());
+    kd_map_ptr_ = kd_map_ptr;
+    kd_map_ptr_->setInputCloud(cloud);
   }
   catch (std::exception& e)
   {
@@ -185,6 +194,39 @@ bool Grid3d::open(const std::string& map_path, const double sensor_dev)
   return true;
 }
 
+bool Grid3d::updateMap(const float x, const float y, const float z,const float radius,const float voxel_size)
+{
+  VSCOMMON::tic("updateMap");
+  pcl::PointCloud<PointType>::Ptr mapcloud(new pcl::PointCloud<PointType>());
+  pcl::PointCloud<PointType>::Ptr mapcloud_ds(new pcl::PointCloud<PointType>());
+  PointType cpt;cpt.x = x,cpt.y = y,cpt.z = z;
+  std::vector<int> v_point_idx;
+  std::vector<float> v_squared_dist;
+  kd_pose_ptr_->radiusSearch(cpt, radius, v_point_idx, v_squared_dist, 0);
+  if(v_point_idx.size()<1)
+  {
+    using namespace VSCOMMON;
+    LOG_COUT_INFO(g_log,"not find right pose map here.");
+    return false;
+  }
+  for (int i = 0; i < v_point_idx.size(); ++i)
+  {
+    int thisKeyInd = (int)keyposes_3d->points[i].intensity;
+    *mapcloud += *(surf_keyframes[i]);
+    *mapcloud += *(outlier_keyframes[i]);
+    *mapcloud += *(corner_keyframes[i]);
+  }
+  pcl::VoxelGrid<PointType> downsample;
+  downsample.setLeafSize(voxel_size, voxel_size, voxel_size);
+  downsample.setInputCloud(mapcloud);
+  downsample.filter(*mapcloud_ds);
+
+  pcl::KdTreeFLANN<PointType>::Ptr kd_map_ptr(new pcl::KdTreeFLANN<PointType>());
+  kd_map_ptr_ = kd_map_ptr;
+  kd_map_ptr_->setInputCloud(mapcloud_ds);
+  LOG_INFO(g_log,"update map takes: "<< VSCOMMON::toc("updateMap")*1000<<"ms. cloud size: "<< mapcloud_ds->points.size());
+  return true;
+}
 
 float Grid3d::computeCloudWeight(const pcl::PointCloud<PointType>::Ptr& cloud, const float tx, const float ty,
                                  const float tz, const float roll, const float pitch, const float yaw) const
@@ -253,6 +295,68 @@ float Grid3d::computeCloudWeight(const pcl::PointCloud<PointType>::Ptr& cloud, c
 
   return (n < 10)?0:weight/cloud->size();
   //return (n <= 10) ? 0 : weight / n;  // change here
+}
+
+float Grid3d::computeCloudWeight(const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud, const float tx, const float ty,
+                          const float tz, const float roll, const float pitch, const float yaw,const int sampleNun) const
+{
+  if (!grid_info_ || !pc_info_)
+    return 0;
+
+  const auto sr = sin(roll);
+  const auto cr = cos(roll);
+  const auto sp = sin(pitch);
+  const auto cp = cos(pitch);
+  const auto sy = sin(yaw);
+  const auto cy = cos(yaw);
+
+  float r00, r01, r02, r10, r11, r12, r20, r21, r22;
+  r00 = cy*cp; r01 = cy*sp*sr - sy*cr; r02 = cy*sp*cr + sy*sr;
+  r10 = sy*cp; r11 = sy*sp*sr + cy*cr; r12 = sy*sp*cr - cy*sr;
+  r20 =   -sp; r21 =            cp*sr; r22 =            cp*cr;
+
+  const double max_dist_ = 0.5;
+  const double sigma_ = 1.0;
+  const double max_squared_dist = max_dist_ * max_dist_; // [m^2]
+  const double denominator = 2 * sigma_ * sigma_;
+  const double distance_penelty = 0.3;
+
+  PointType new_point;
+  float weight = 0.;
+  int n = 0;
+
+        /*
+         * likelihood = exp(-(x-mu)^2/(2*sigma^2)), x is variable, mu is avg
+         * log likelihood = -(x-mu)^2/(2*sigma^2)
+         */
+  double log_likelihood = 0.0;     
+  for (pcl::PointCloud<PointType>::const_iterator it = cloud->begin(); it != cloud->end(); ++it)
+  {
+    auto point = dynamic_cast<const PointType*>(&(*it));
+    if (point == nullptr)
+      continue;
+
+    new_point.x = point->x*r00 + point->y*r01 + point->z*r02 + tx;
+    new_point.y = point->x*r10 + point->y*r11 + point->z*r12 + ty;
+    new_point.z = point->x*r20 + point->y*r21 + point->z*r22 + tz;
+
+    // k nearest neighbor search
+    constexpr int k = 1;
+    std::vector<int> v_point_idx;
+    std::vector<float> v_squared_dist;
+    double squared_dist;
+
+    if (kd_map_ptr_->nearestKSearch(new_point, k, v_point_idx, v_squared_dist) > 0)
+      squared_dist = std::min((double)v_squared_dist.at(0), max_squared_dist);
+    else
+      squared_dist = max_squared_dist;
+
+    // first step : log likelihood += -(x-mu)^2
+    log_likelihood += -1.0 * squared_dist * distance_penelty;
+  }
+  // second step : log likelihood *= 1.0/(2*sigma^2)
+  log_likelihood /= denominator; // denominator = (2*sigma^2)
+  return log_likelihood;
 }
 
 bool Grid3d::isIntoMap(const float x, const float y, const float z) const

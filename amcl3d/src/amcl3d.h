@@ -81,6 +81,8 @@ private:
 
   Parameters params_;
 
+  Particle Last_pose,current_pose;
+
   enum{GLOBAL_LOC, LASER_ODOM, POSE_TRACKING, BLIND_TRACKING};
   int cur_loc_status_;
 

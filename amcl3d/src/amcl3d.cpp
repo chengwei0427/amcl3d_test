@@ -50,7 +50,17 @@ namespace amcl3d
     //pcl::PointCloud<PointType>::Ptr temp_cloud(new pcl::PointCloud<PointType>());
     ds_.setInputCloud(input_cloud);
     ds_.filter(*cloud_ds);
-    //cloud_ds = temp_cloud;
+    
+    static bool first_process = true;
+    if(!first_process)
+    {
+      current_pose = mean_;
+      if((current_pose.x-Last_pose.x)*(current_pose.x-Last_pose.x) + (current_pose.y-Last_pose.y)*(current_pose.y-Last_pose.y) > 25)
+      {
+        if(grid3d_->updateMap(current_pose.x,current_pose.y,current_pose.z))
+          Last_pose = current_pose;
+      }
+    }
 
     float _t_x, _t_y, _t_z, _t_roll, _t_pitch, _t_yaw;
     pcl::getTranslationAndEulerAngles(odom_increment, _t_x, _t_y, _t_z, _t_roll, _t_pitch, _t_yaw);
@@ -68,6 +78,11 @@ namespace amcl3d
     }
 
     getMean();
+    if(first_process)
+    {
+      first_process = false;
+      Last_pose = mean_;
+    }
     LOG_INFO(g_log,"Finish process frame. cost: " << VSCOMMON::toc("ProcessFrame") * 1000 << " ms."
           <<" robot pose:"<<mean_.x<<" "<<mean_.y<<" "<<mean_.z<<" "<<mean_.roll<<" "<<mean_.pitch<<" "<<mean_.yaw
           <<", particle num:"<< getParticle().size()<<" state count: "<<cur_loc_status_cnt_++);
@@ -151,6 +166,7 @@ namespace amcl3d
     const float roll_init, const float pitch_init,const float yaw_init)
   {
     PointType kd_nearest_pt = getMapHeight(x_init,y_init);
+    grid3d_->updateMap(kd_nearest_pt.x,kd_nearest_pt.y,kd_nearest_pt.z);
 
     LOG_INFO(g_log,"find nearest pt: "<< kd_nearest_pt.x<<" "<< kd_nearest_pt.y<<" "<< kd_nearest_pt.z <<" from: "<< x_init<<" "<< y_init<<" "<< z_init);
     set_pose_ = Particle(x_init, y_init, kd_nearest_pt.z, roll_init,pitch_init,yaw_init);
@@ -300,6 +316,6 @@ namespace amcl3d
     {
       p_[i].z += delta_h;
     }
-    LOG_INFO(g_log,"Resample time:"<<VSCOMMON::toc("updateSampleHeight") * 1000<<" ms");
+    LOG_INFO(g_log,"update Sample Height takes:"<<VSCOMMON::toc("updateSampleHeight") * 1000<<" ms");
   }
 }  // namespace amcl3d
