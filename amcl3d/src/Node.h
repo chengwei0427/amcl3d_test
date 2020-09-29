@@ -167,7 +167,7 @@ private:
    * with the size of the octomap. Subsequently, it extracts the probability of each grid point to find the maximum
    * probability and be able to rescale it in the occupancy message.
    */
-  bool buildGridSliceMsg(const double z, nav_msgs::OccupancyGrid& msg) const;
+  //bool buildGridSliceMsg(const double z, nav_msgs::OccupancyGrid& msg) const;
 
   /*! \brief To transform the information of point cloud into the message of ROS.
    *
@@ -188,8 +188,7 @@ private:
   
 
   Parameters parameters_; /*!< Instance of the Parameters class */
-  LocalizationParam amcl_params_;
-  Grid3d* grid3d_;         /*!< Instance of the Grid3d class */
+  LocalizationParam amcl_params_;      
   MonteCarloLocalization* mcl_;     /*!< Instance of the ParticleFilter class */
 
   ros::NodeHandle nh_; /*!< ROS Node Handle */

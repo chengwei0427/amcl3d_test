@@ -19,8 +19,8 @@
 
 namespace amcl3d
 {
-ParticleFilter::ParticleFilter(VSCOMMON::LoggerPtr& t_log, Grid3d* grid3d) 
-  : generator_(rd_()),g_log(t_log),grid3d_(grid3d)
+ParticleFilter::ParticleFilter(VSCOMMON::LoggerPtr& t_log) 
+  : generator_(rd_()),g_log(t_log),grid3d_(new Grid3d(t_log))
 {
 }
 
@@ -130,7 +130,9 @@ void ParticleFilter::update(const pcl::PointCloud<PointType>::Ptr& cloud)
       continue;
     }
 
-    /*  Evaluate the weight of the point cloud */
+    //  Evaluate the weight of the point cloud 
+    //  TODO: ground and non ground points compute weight respectively
+
     p_[i].w = grid3d_->computeCloudWeight(cloud, tx, ty, tz, p_[i].roll, p_[i].pitch, p_[i].yaw);  
   }
   LOG_INFO(g_log,"Update time:"<<VSCOMMON::toc("Update") * 1000<<" ms");

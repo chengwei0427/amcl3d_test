@@ -31,7 +31,7 @@ class MonteCarloLocalization : public ParticleFilter
 public:
   /*! \brief MonteCarloLocalization class constructor.
    */
-  explicit MonteCarloLocalization(VSCOMMON::LoggerPtr&,Grid3d* );
+  explicit MonteCarloLocalization(VSCOMMON::LoggerPtr&);
   /*! \brief MonteCarloLocalization class destructor.
    */
   virtual ~MonteCarloLocalization();
@@ -56,7 +56,9 @@ public:
     params_ = param;
   }
 
-  void init();
+  bool init();
+
+  pcl::PointCloud<PointType> getMapCloud();
 
 private:
   void caculateGlobalNoise(const float f = 1);
@@ -73,11 +75,16 @@ private:
 
   int computeSampleNum(const int cnt_per_grid = 3);
 
+  PointType getMapHeight(const float& x,const float& y);
+
+  void updateSampleHeight();
+
   Parameters params_;
 
   enum{GLOBAL_LOC, LASER_ODOM, POSE_TRACKING, BLIND_TRACKING};
   int cur_loc_status_;
 
+  pcl::KdTreeFLANN<PointType>::Ptr kdtree_keypose_3d_;
 
   VSCOMMON::LoggerPtr g_log;
 

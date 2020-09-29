@@ -104,10 +104,9 @@ struct LocalizationParam{
 class ParticleFilter
 {
 public:
-    using PointType = pcl::PointXYZI;
   /*! \brief ParticleFilter class constructor.
    */
-  explicit ParticleFilter(VSCOMMON::LoggerPtr&, Grid3d* grid3d_);
+  explicit ParticleFilter(VSCOMMON::LoggerPtr&);
   /*! \brief ParticleFilter class destructor.
    */
   virtual ~ParticleFilter();
@@ -214,6 +213,8 @@ public:
   void uniformSample(int& sample_num);
 
   void setParticleNum(int max_sample = 800,int min_sample = 150);
+
+
 public:
   std::vector<Particle> p_; /*!< Vector of particles */
   Particle mean_;           /*!< Particle to show the mean of all the particles */
@@ -222,6 +223,7 @@ public:
   LocalizationParam localization_params_;
 
   int max_resamp_num_,min_resamp_num_;
+
 private:
 
   /*! \brief To generate the random value by the Gaussian distribution.

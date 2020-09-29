@@ -26,7 +26,7 @@
 namespace amcl3d
 {
 Node::Node(const std::string& str) : WORKING_DIR(str), nh_(ros::this_node::getName())
-,g_log(new VSCOMMON::Logger("MAIN")),grid3d_(new Grid3d(g_log)), mcl_(new MonteCarloLocalization(g_log,grid3d_))
+,g_log(new VSCOMMON::Logger("MAIN")), mcl_(new MonteCarloLocalization(g_log))
 {
   using namespace VSCOMMON;
   std::cout<<WORKING_DIR+"log"<<std::endl;
@@ -37,7 +37,11 @@ Node::Node(const std::string& str) : WORKING_DIR(str), nh_(ros::this_node::getNa
   LOG_INFO(g_log, "TOOL_VERSION= " << TOOL_VERSION << " build:" << __DATE__ << " " << __TIME__ );
   readParamFromXML();
   mcl_->setParams(amcl_params_,parameters_);
-  mcl_->init();
+  if(mcl_->init() == false)
+  {
+    LOG_COUT_ERROR(g_log, VSCOMMON::getCurTimeStr(), " Localization init failed. Module shut down.");
+    return;
+  }
   LOG_INFO(g_log, "Node initialized successful.");
 }
 
@@ -50,17 +54,14 @@ void Node::spin()
 {
   LOG_INFO(g_log,"starting Node::spin()");
 
-  if (!grid3d_->open(parameters_.map_path_, parameters_.sensor_dev_))
-    return;
-
-  if (parameters_.publish_grid_slice_rate_ != 0 &&
+  /*if (parameters_.publish_grid_slice_rate_ != 0 &&
       buildGridSliceMsg(parameters_.grid_slice_z_, grid_slice_msg_))
   {
     grid_slice_msg_.header.frame_id = parameters_.global_frame_id_;
     grid_slice_pub_ = nh_.advertise<nav_msgs::OccupancyGrid>("grid_slice", 1, true);
     grid_slice_pub_timer_ =
         nh_.createTimer(ros::Duration(ros::Rate(parameters_.publish_grid_slice_rate_)), &Node::publishGridSlice, this);
-  }
+  }*/
 
   if (parameters_.publish_point_cloud_rate_ != 0 && buildMapPointCloudMsg(map_point_cloud_msg_))
   {
@@ -233,11 +234,11 @@ void Node::publishMapPointCloud(const ros::TimerEvent&)
   map_point_cloud_pub_.publish(map_point_cloud_msg_);
 }
 
-void Node::publishGridSlice(const ros::TimerEvent&)
+/*void Node::publishGridSlice(const ros::TimerEvent&)
 {
   grid_slice_msg_.header.stamp = ros::Time::now();
   grid_slice_pub_.publish(grid_slice_msg_);
-}
+}*/
 
 void Node::publishParticles()
 {
@@ -429,6 +430,7 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
     }
     else
     {
+      amcl_out_ = false;
       //  无amcl定位数据，里程计航迹推演
       lastbase_2_world_eigen_ = lastbase_2_world_eigen_*amcl_out_lastbase_2_odom_eigen_.inverse()*base_2_odom_eigen_;
       amcl_out_lastbase_2_odom_eigen_ = base_2_odom_eigen_;
@@ -530,15 +532,12 @@ tf::Transform Node::getTransformFromAffine3f(const Eigen::Affine3f& tf_pose)
 
 bool Node::buildMapPointCloudMsg(sensor_msgs::PointCloud2& msg) const
 {
-  if (!grid3d_->pc_info_ || !grid3d_->pc_info_->cloud)
-    return false;
-
-  pcl::toROSMsg(*(grid3d_->pc_info_->cloud), msg);
+  pcl::toROSMsg(mcl_->getMapCloud(), msg);
   LOG_INFO(g_log, __FUNCTION__<<" "<<__LINE__<<" build pointcloud msg successful. ");
   return true;
 }
 
-bool Node::buildGridSliceMsg(const double z, nav_msgs::OccupancyGrid& msg) const
+/*bool Node::buildGridSliceMsg(const double z, nav_msgs::OccupancyGrid& msg) const
 {
   if (!grid3d_->grid_info_ || !grid3d_->pc_info_)
     return false;
@@ -558,7 +557,7 @@ bool Node::buildGridSliceMsg(const double z, nav_msgs::OccupancyGrid& msg) const
   msg.info.origin.orientation.z = 0.;
   msg.info.origin.orientation.w = 1.;
 
-  /* Extract max probability */
+  // Extract max probability 
   const uint32_t init = grid3d_->point2grid(grid3d_->pc_info_->octo_min_x, grid3d_->pc_info_->octo_min_y, z);
   const uint32_t end = grid3d_->point2grid(grid3d_->pc_info_->octo_max_x, grid3d_->pc_info_->octo_max_y, z);
   float temp_prob, max_prob = -1.0;
@@ -570,7 +569,7 @@ bool Node::buildGridSliceMsg(const double z, nav_msgs::OccupancyGrid& msg) const
       max_prob = temp_prob;
   }
 
-  /* Copy data into grid msg and scale the probability to [0, 100] */
+  // Copy data into grid msg and scale the probability to [0, 100] 
   if (max_prob < 0.000001f)
     max_prob = 0.000001f;
   max_prob = 100.f / max_prob;
@@ -579,7 +578,7 @@ bool Node::buildGridSliceMsg(const double z, nav_msgs::OccupancyGrid& msg) const
     msg.data[i] = static_cast<int8_t>(grid_ptr[init + i].prob * max_prob);
     LOG_INFO(g_log,__FUNCTION__<<" "<<__LINE__<<" build grid slice msg successful. ");
   return true;
-}
+}*/
 
 
 }  // namespace amcl3d

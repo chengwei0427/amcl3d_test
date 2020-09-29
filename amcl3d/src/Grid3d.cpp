@@ -70,14 +70,8 @@ namespace amcl3d
   return true;
 }*/
 
-bool Grid3d::loadPCD(std::string file_path,pcl::PointCloud < pcl::PointXYZI>::Ptr& input)
+bool Grid3d::loadPCD(std::string file_path,pcl::PointCloud < PointType>::Ptr& input)
 {
-  #define PointType pcl::PointXYZI
-  std::vector<pcl::PointCloud<PointType>::Ptr> corner_keyframes;
-  std::vector<pcl::PointCloud<PointType>::Ptr>  surf_keyframes;
-  std::vector<pcl::PointCloud<PointType>::Ptr>  outlier_keyframes;
-  pcl::PointCloud<PointType>::Ptr  keyposes_3d;
-
   pcl::PointCloud<PointType>::Ptr corner_pc(new pcl::PointCloud<PointType>());
   pcl::PointCloud<PointType>::Ptr surf_pc(new pcl::PointCloud<PointType>());
   pcl::PointCloud<PointType>::Ptr outlier_pc(new pcl::PointCloud<PointType>());
@@ -142,7 +136,7 @@ bool Grid3d::open(const std::string& map_path, const double sensor_dev)
   using namespace VSCOMMON;
   try
   {
-    pcl::PointCloud < pcl::PointXYZI>::Ptr cloud(new pcl::PointCloud < pcl::PointXYZI>());
+    pcl::PointCloud < PointType>::Ptr cloud(new pcl::PointCloud < PointType>());
     VSCOMMON::tic("loadPCD");
     if(!loadPCD(map_path,cloud))
     {
@@ -192,7 +186,7 @@ bool Grid3d::open(const std::string& map_path, const double sensor_dev)
 }
 
 
-float Grid3d::computeCloudWeight(const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud, const float tx, const float ty,
+float Grid3d::computeCloudWeight(const pcl::PointCloud<PointType>::Ptr& cloud, const float tx, const float ty,
                                  const float tz, const float roll, const float pitch, const float yaw) const
 {
   if (!grid_info_ || !pc_info_)
@@ -220,16 +214,16 @@ float Grid3d::computeCloudWeight(const pcl::PointCloud<pcl::PointXYZI>::Ptr& clo
 
   auto grid_ptr = grid_info_->grid.data();
   const auto grid_size = grid_info_->grid.size();
-  pcl::PointXYZI new_point;
+  PointType new_point;
   uint32_t ix, iy, iz;
   uint32_t grid_index;
   float weight = 0.;
   int n = 0;
   const float error_z = 0;
 
-  for (pcl::PointCloud<pcl::PointXYZI>::const_iterator it = cloud->begin(); it != cloud->end(); ++it)
+  for (pcl::PointCloud<PointType>::const_iterator it = cloud->begin(); it != cloud->end(); ++it)
   {
-    auto point = dynamic_cast<const pcl::PointXYZI*>(&(*it));
+    auto point = dynamic_cast<const PointType*>(&(*it));
     if (point == nullptr)
       continue;
 

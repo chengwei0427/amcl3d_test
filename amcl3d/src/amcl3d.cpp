@@ -19,9 +19,9 @@
 
 namespace amcl3d
 {
-  MonteCarloLocalization::MonteCarloLocalization(VSCOMMON::LoggerPtr& t_log,Grid3d* grid3d) 
+  MonteCarloLocalization::MonteCarloLocalization(VSCOMMON::LoggerPtr& t_log) 
       : g_log(t_log)
-      ,ParticleFilter(t_log,grid3d)
+      ,ParticleFilter(t_log)
       ,loc_loop_(0)
       ,cur_loc_status_(GLOBAL_LOC)
       ,global_loc_done_(false)
@@ -31,10 +31,15 @@ namespace amcl3d
   MonteCarloLocalization::~MonteCarloLocalization()
   { }
 
-  void MonteCarloLocalization::init()
+  bool MonteCarloLocalization::init()
   {
     cloud_ds.reset(new pcl::PointCloud<PointType>());
     ds_.setLeafSize(params_.voxel_size_, params_.voxel_size_, params_.voxel_size_);
+    if (!grid3d_->open(params_.map_path_, params_.sensor_dev_))
+      return false;
+    kdtree_keypose_3d_.reset(new pcl::KdTreeFLANN<PointType>());
+    kdtree_keypose_3d_->setInputCloud(grid3d_->keyposes_3d);
+    return true;
   }
 
   void MonteCarloLocalization::processFrame(pcl::PointCloud<PointType>::Ptr& input_cloud,Eigen::Affine3f& odom_increment)
@@ -63,7 +68,7 @@ namespace amcl3d
     }
 
     getMean();
-  LOG_INFO(g_log,"Finish process frame. cost: " << VSCOMMON::toc("ProcessFrame") * 1000 << " ms."
+    LOG_INFO(g_log,"Finish process frame. cost: " << VSCOMMON::toc("ProcessFrame") * 1000 << " ms."
           <<" robot pose:"<<mean_.x<<" "<<mean_.y<<" "<<mean_.z<<" "<<mean_.roll<<" "<<mean_.pitch<<" "<<mean_.yaw
           <<", particle num:"<< getParticle().size()<<" state count: "<<cur_loc_status_cnt_++);
   }
@@ -140,13 +145,16 @@ namespace amcl3d
     //TODO: goto different process,like blind tracking,pose tracking or laserodom tracking.
     PFResample(); 
   }
-
+  //  TODO: reloc from rviz, Z is 0 always,may check for trajectory pose hight here
   void MonteCarloLocalization::RelocPose(const int num_particles, 
     const float x_init,const float y_init, const float z_init, 
     const float roll_init, const float pitch_init,const float yaw_init)
   {
-    set_pose_ = Particle(x_init, y_init, z_init, roll_init,pitch_init,yaw_init);
-    ParticleFilter::relocPose(num_particles, x_init, y_init, z_init, roll_init,pitch_init,yaw_init,
+    PointType kd_nearest_pt = getMapHeight(x_init,y_init);
+
+    LOG_INFO(g_log,"find nearest pt: "<< kd_nearest_pt.x<<" "<< kd_nearest_pt.y<<" "<< kd_nearest_pt.z <<" from: "<< x_init<<" "<< y_init<<" "<< z_init);
+    set_pose_ = Particle(x_init, y_init, kd_nearest_pt.z, roll_init,pitch_init,yaw_init);
+    ParticleFilter::relocPose(num_particles, x_init, y_init, kd_nearest_pt.z, roll_init,pitch_init,yaw_init,
         localization_params_.init_x_dev_,localization_params_.init_y_dev_,localization_params_.init_z_dev_,
         localization_params_.init_roll_dev_,localization_params_.init_pitch_dev_,localization_params_.init_yaw_dev_);
 
@@ -173,6 +181,7 @@ namespace amcl3d
       setParticleWeight();
     int sample_num = computeSampleNum();
     uniformSample(sample_num);
+    updateSampleHeight();
     LOG_INFO(g_log,"Resample time:"<<VSCOMMON::toc("Resample") * 1000<<" ms");
   }
 
@@ -259,5 +268,38 @@ namespace amcl3d
     if(sample_num > max_resamp_num_)
       return max_resamp_num_;
     return sample_num;
+  }
+
+  pcl::PointCloud<PointType> MonteCarloLocalization::getMapCloud()
+  {
+    return (*(grid3d_->pc_info_->cloud));
+  }
+
+  PointType MonteCarloLocalization::getMapHeight(const float& x,const float& y)
+  {
+    PointType kd_pt;
+    kd_pt.x = x,kd_pt.y = y,kd_pt.z = 0.;
+    std::vector<int> point_idx_(1);
+    std::vector<float> point_nkn_squared_(1);
+    kdtree_keypose_3d_->nearestKSearch(kd_pt,1,point_idx_,point_nkn_squared_);
+
+    PointType kd_nearest_pt; 
+    kd_nearest_pt.x = grid3d_->keyposes_3d->points[point_idx_[0]].x,
+    kd_nearest_pt.y = grid3d_->keyposes_3d->points[point_idx_[0]].y,
+    kd_nearest_pt.z = grid3d_->keyposes_3d->points[point_idx_[0]].z;
+    return kd_nearest_pt;
+  }
+
+  void MonteCarloLocalization::updateSampleHeight()
+  {
+    VSCOMMON::tic("updateSampleHeight");
+    Particle pt = getMean();
+    PointType pt_pcl = getMapHeight(pt.x,pt.y);
+    float delta_h = pt_pcl.z - pt.z;
+    for (uint32_t i = 0; i < p_.size(); ++i)
+    {
+      p_[i].z += delta_h;
+    }
+    LOG_INFO(g_log,"Resample time:"<<VSCOMMON::toc("updateSampleHeight") * 1000<<" ms");
   }
 }  // namespace amcl3d

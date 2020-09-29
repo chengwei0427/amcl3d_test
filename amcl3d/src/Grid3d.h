@@ -105,6 +105,11 @@ public:
 
   Grid3dInfo::Ptr grid_info_; /*!< 3D probabilistic grid cell */
 
+  std::vector<pcl::PointCloud<PointType>::Ptr> corner_keyframes;
+  std::vector<pcl::PointCloud<PointType>::Ptr>  surf_keyframes;
+  std::vector<pcl::PointCloud<PointType>::Ptr>  outlier_keyframes;
+  pcl::PointCloud<PointType>::Ptr  keyposes_3d;
+
 private:
   /*! \brief To save the file of map like grid.
    *

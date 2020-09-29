@@ -81,7 +81,7 @@ namespace amcl3d
   return pc_info;
 }*/
 
-  PointCloudInfo::Ptr computePointCloud(pcl::PointCloud<pcl::PointXYZI>::Ptr inputCloud,double resolution)
+  PointCloudInfo::Ptr computePointCloud(pcl::PointCloud<PointType>::Ptr inputCloud,double resolution)
   {
     if (!inputCloud)
       throw std::runtime_error("OcTree is NULL");
@@ -91,7 +91,7 @@ namespace amcl3d
       throw std::runtime_error("OcTree is empty");
 
     PointCloudInfo::Ptr pc_info(new PointCloudInfo());
-    pcl::PointXYZI minPt, maxPt;
+    PointType minPt, maxPt;
     pcl::getMinMax3D(*inputCloud, minPt, maxPt);
     pc_info->octo_min_x = minPt.x;
     pc_info->octo_min_y = minPt.y;
@@ -132,7 +132,7 @@ Grid3dInfo::Ptr computeGrid(PointCloudInfo::Ptr pc_info, const double sensor_dev
   std::cout<<"grid size: "<< grid_size<<std::endl;
   
   /* Setup kdtree */
-  pcl::KdTreeFLANN<pcl::PointXYZI> kdtree;
+  pcl::KdTreeFLANN<PointType> kdtree;
   kdtree.setInputCloud(pc_info->cloud);
 
   /* Compute the distance to the closest point of the grid */
@@ -140,7 +140,7 @@ Grid3dInfo::Ptr computeGrid(PointCloudInfo::Ptr pc_info, const double sensor_dev
   const float gauss_const2 = static_cast<float>(1. / (2. * grid_info->sensor_dev * grid_info->sensor_dev));
   uint32_t index;
   float dist;
-  pcl::PointXYZI search_point;
+  PointType search_point;
   std::vector<int> point_idx_nkn_search(1);
   std::vector<float> point_nkn_squared_distance(1);
   for (uint32_t iz = 0; iz < grid_info->size_z; ++iz)
