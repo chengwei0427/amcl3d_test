@@ -58,7 +58,7 @@ public:
   typedef boost::shared_ptr<PointCloudInfo> Ptr;            /*!< Point cloud information shared point */
   typedef boost::shared_ptr<const PointCloudInfo> ConstPtr; /*!< Point cloud information shared point (const)*/
 
-  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud; /*!< Pcl point cloud */
+  pcl::PointCloud<pcl::PointXYZI>::Ptr cloud; /*!< Pcl point cloud */
   double octo_min_x{ 0 };                    /*!< Minimum x-axis value of octomap */
   double octo_min_y{ 0 };                    /*!< Minimum y-axis value of octomap */
   double octo_min_z{ 0 };                    /*!< Minimum z-axis value of octomap */
@@ -87,7 +87,7 @@ public:
  * correctly creation of the octree. The point-cloud is shifted to have (0,0,0) as min values
  */
 //PointCloudInfo::Ptr computePointCloud(boost::shared_ptr<octomap::OcTree> octo_tree);
-PointCloudInfo::Ptr computePointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud,double resolution);
+PointCloudInfo::Ptr computePointCloud(pcl::PointCloud<pcl::PointXYZI>::Ptr inputCloud,double resolution);
 
 /*! \brief Load the octomap in PCL for easy nearest neighborhood computation.
  *

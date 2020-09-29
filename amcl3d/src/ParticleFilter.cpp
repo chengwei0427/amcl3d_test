@@ -20,7 +20,7 @@
 namespace amcl3d
 {
 ParticleFilter::ParticleFilter(VSCOMMON::LoggerPtr& t_log, Grid3d* grid3d) 
-  : generator_(rd_()),g_log(t_log),global_init_num(0),grid3d_(grid3d)
+  : generator_(rd_()),g_log(t_log),grid3d_(grid3d)
 {
 }
 
@@ -28,7 +28,7 @@ ParticleFilter::~ParticleFilter()
 {
 }
 
-void ParticleFilter::init(const int num_particles, const float x_init, const float y_init, const float z_init,
+void ParticleFilter::relocPose(const int num_particles, const float x_init, const float y_init, const float z_init,
                           const float roll_init, const float pitch_init, const float yaw_init,
                           const float x_dev, const float y_dev, const float z_dev,
                           const float roll_dev, const float pitch_dev, const float yaw_dev)
@@ -84,21 +84,15 @@ void ParticleFilter::init(const int num_particles, const float x_init, const flo
   mean_ = mean_p;
 
   initialized_ = true;
-  global_init_num = 10;
+  using namespace VSCOMMON;
+  LOG_COUT_INFO(g_log,"mcl initialized.");
 }
 
-void ParticleFilter::predict(const double odom_x_mod, const double odom_y_mod, const double odom_z_mod,
-                             const double odom_roll_mod, const double odom_pitch_mod,const double odom_yaw_mod,
-                             const double delta_x, const double delta_y, const double delta_z,
-                             const double delta_roll,const double delta_pitch, const double delta_yaw)
+void ParticleFilter::predict(const double delta_x, const double delta_y, const double delta_z,
+                            const double delta_roll,const double delta_pitch,const double delta_yaw,
+                            const double odom_x_noise, const double odom_y_noise, const double odom_z_noise,
+                            const double odom_roll_noise, const double odom_pitch_noise,const double odom_yaw_noise)
 {
-  const double x_dev = VSCOMMON::clip(fabs(delta_x * odom_x_mod),localization_params_.min_xy_noise_,0.2);
-  const double y_dev = VSCOMMON::clip(fabs(delta_y * odom_y_mod),localization_params_.min_xy_noise_,0.2);
-  const double z_dev = VSCOMMON::clip(fabs(delta_z * odom_z_mod),localization_params_.min_z_noise_,0.15);
-  const double roll_dev = VSCOMMON::clip(fabs(delta_roll * odom_roll_mod),localization_params_.min_rp_noise_,0.1);
-  const double pitch_dev = VSCOMMON::clip(fabs(delta_pitch * odom_pitch_mod),localization_params_.min_rp_noise_,0.1);
-  const double yaw_dev = VSCOMMON::clip(fabs(delta_yaw * odom_yaw_mod),localization_params_.min_yaw_noise_,0.1);
-
   /*  Make a prediction for all particles according to the odometry */
   float sa, ca, rand_x, rand_y;
   for (uint32_t i = 0; i < p_.size(); ++i)
@@ -106,21 +100,21 @@ void ParticleFilter::predict(const double odom_x_mod, const double odom_y_mod, c
     // TODO: 角度变换，roll pitch对坐标的影响
     sa = sin(p_[i].yaw);
     ca = cos(p_[i].yaw);
-    rand_x = delta_x + ranGaussian(0, x_dev);
-    rand_y = delta_y + ranGaussian(0, y_dev);
+    rand_x = delta_x + ranGaussian(0, odom_x_noise);
+    rand_y = delta_y + ranGaussian(0, odom_y_noise);
     p_[i].x += ca * rand_x - sa * rand_y;
     p_[i].y += sa * rand_x + ca * rand_y;
-    p_[i].z += delta_z + ranGaussian(0, z_dev);
-    p_[i].roll += delta_roll + ranGaussian(0,roll_dev);
-    p_[i].pitch += delta_pitch + ranGaussian(0,pitch_dev);
-    p_[i].yaw += delta_yaw + ranGaussian(0, yaw_dev);
+    p_[i].z += delta_z + ranGaussian(0, odom_z_noise);
+    p_[i].roll += delta_roll + ranGaussian(0,odom_roll_noise);
+    p_[i].pitch += delta_pitch + ranGaussian(0,odom_pitch_noise);
+    p_[i].yaw += delta_yaw + ranGaussian(0, odom_yaw_noise);
   }
 }
 
-void ParticleFilter::update(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
+void ParticleFilter::update(const pcl::PointCloud<PointType>::Ptr& cloud)
 {
   /*  Incorporate measurements */
-  // VSCOMMON::tic("pf_update");
+  VSCOMMON::tic("Update");
   for (uint32_t i = 0; i < p_.size(); ++i)
   {
     /*  Get particle information */
@@ -139,7 +133,7 @@ void ParticleFilter::update(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
     /*  Evaluate the weight of the point cloud */
     p_[i].w = grid3d_->computeCloudWeight(cloud, tx, ty, tz, p_[i].roll, p_[i].pitch, p_[i].yaw);  
   }
-  // LOG_INFO(g_log,"PF update time : "<<VSCOMMON::toc("pf_update")*1000<<" ms.");
+  LOG_INFO(g_log,"Update time:"<<VSCOMMON::toc("Update") * 1000<<" ms");
 }
 
 void ParticleFilter::particleNormalize()
@@ -266,6 +260,12 @@ float ParticleFilter::rngUniform(const float range_from, const float range_to)
 {
   std::uniform_real_distribution<float> distribution(range_from, range_to);
   return distribution(generator_);
+}
+
+void ParticleFilter::setParticleNum(int max_sample ,int min_sample)
+{
+  max_resamp_num_ = max_sample;
+  min_resamp_num_ = min_sample;
 }
 
 }  // namespace amcl3d

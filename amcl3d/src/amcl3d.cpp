@@ -24,45 +24,156 @@ namespace amcl3d
       ,ParticleFilter(t_log,grid3d)
       ,loc_loop_(0)
       ,cur_loc_status_(GLOBAL_LOC)
-      ,max_sample_num(600)
-  { 
-  }
+      ,global_loc_done_(false)
+      ,cur_loc_status_cnt_(0)
+  {  }
 
   MonteCarloLocalization::~MonteCarloLocalization()
+  { }
+
+  void MonteCarloLocalization::init()
   {
+    cloud_ds.reset(new pcl::PointCloud<PointType>());
+    ds_.setLeafSize(params_.voxel_size_, params_.voxel_size_, params_.voxel_size_);
   }
 
-  void MonteCarloLocalization::init(const int num_particles, 
+  void MonteCarloLocalization::processFrame(pcl::PointCloud<PointType>::Ptr& input_cloud,Eigen::Affine3f& odom_increment)
+  {
+    VSCOMMON::tic("ProcessFrame");
+    LOG_INFO(g_log,"Begin process frame. loop:" << loc_loop_++);
+
+    //pcl::PointCloud<PointType>::Ptr temp_cloud(new pcl::PointCloud<PointType>());
+    ds_.setInputCloud(input_cloud);
+    ds_.filter(*cloud_ds);
+    //cloud_ds = temp_cloud;
+
+    float _t_x, _t_y, _t_z, _t_roll, _t_pitch, _t_yaw;
+    pcl::getTranslationAndEulerAngles(odom_increment, _t_x, _t_y, _t_z, _t_roll, _t_pitch, _t_yaw);
+    odomIncre_ = Particle(_t_x, _t_y, _t_z, _t_roll, _t_pitch, _t_yaw);
+
+    if(!global_loc_done_) //  do global localization here
+    {
+      caculateGlobalNoise();
+      globalLocalization();
+    }
+    else                  //  do local localization for times
+    {
+      caculateLocalNoise();
+      localLocalization();
+    }
+
+    getMean();
+  LOG_INFO(g_log,"Finish process frame. cost: " << VSCOMMON::toc("ProcessFrame") * 1000 << " ms."
+          <<" robot pose:"<<mean_.x<<" "<<mean_.y<<" "<<mean_.z<<" "<<mean_.roll<<" "<<mean_.pitch<<" "<<mean_.yaw
+          <<", particle num:"<< getParticle().size()<<" state count: "<<cur_loc_status_cnt_++);
+  }
+
+  void MonteCarloLocalization::caculateGlobalNoise(const float f)  //  global noise twice local nose
+  {
+    double x_dev = VSCOMMON::clip(fabs(odomIncre_.x * localization_params_.odom_x_mod_),localization_params_.min_xy_noise_,0.2);
+    double y_dev = VSCOMMON::clip(fabs(odomIncre_.y * localization_params_.odom_y_mod_),localization_params_.min_xy_noise_,0.2);
+    double z_dev = VSCOMMON::clip(fabs(odomIncre_.z * localization_params_.odom_z_mod_),localization_params_.min_z_noise_,0.15);
+    double roll_dev = VSCOMMON::clip(fabs(odomIncre_.roll * localization_params_.odom_roll_mod_),localization_params_.min_rp_noise_,0.1);
+    double pitch_dev = VSCOMMON::clip(fabs(odomIncre_.pitch * localization_params_.odom_pitch_mod_),localization_params_.min_rp_noise_,0.1);
+    double yaw_dev = VSCOMMON::clip(fabs(odomIncre_.yaw * localization_params_.odom_yaw_mod_),localization_params_.min_yaw_noise_,0.1);
+    cur_odom_noise_ = Particle(x_dev*f,y_dev*f,z_dev*f,roll_dev*f,pitch_dev*f,yaw_dev*f);
+  }
+
+  void MonteCarloLocalization::caculateLocalNoise()
+  {
+    double x_dev = VSCOMMON::clip(fabs(odomIncre_.x * localization_params_.odom_x_mod_),localization_params_.min_xy_noise_,0.2);
+    double y_dev = VSCOMMON::clip(fabs(odomIncre_.y * localization_params_.odom_y_mod_),localization_params_.min_xy_noise_,0.2);
+    double z_dev = VSCOMMON::clip(fabs(odomIncre_.z * localization_params_.odom_z_mod_),localization_params_.min_z_noise_,0.15);
+    double roll_dev = VSCOMMON::clip(fabs(odomIncre_.roll * localization_params_.odom_roll_mod_),localization_params_.min_rp_noise_,0.1);
+    double pitch_dev = VSCOMMON::clip(fabs(odomIncre_.pitch * localization_params_.odom_pitch_mod_),localization_params_.min_rp_noise_,0.1);
+    double yaw_dev = VSCOMMON::clip(fabs(odomIncre_.yaw * localization_params_.odom_yaw_mod_),localization_params_.min_yaw_noise_,0.1);
+    cur_odom_noise_ = Particle(x_dev,y_dev,z_dev,roll_dev,pitch_dev,yaw_dev);
+  }
+
+  void MonteCarloLocalization::globalLocalization()
+  {
+    using namespace VSCOMMON;
+    if(cur_loc_status_cnt_ == 1)
+    {
+      LOG_COUT_INFO(g_log,"Reloc at " << set_pose_.x << " " << set_pose_.y << " "<< set_pose_.z
+      <<" "<< VSCOMMON::rad2deg(set_pose_.roll) <<" "<<VSCOMMON::rad2deg(set_pose_.pitch)  
+      <<" " << VSCOMMON::rad2deg(set_pose_.yaw));
+    }
+    PFMove(odomIncre_,cur_odom_noise_);
+
+    update(cloud_ds);
+
+    PFResample(true);
+
+    static int consist_cnt = 0;
+    //TODO: check for location successful or not
+    Particle best_pf = getBestParticle();
+    Particle mean_pf = getMean();
+    int ptc_num = getParticle().size();
+    float weight_pf = grid3d_->computeCloudWeight(cloud_ds, mean_pf.x, mean_pf.y, mean_pf.z, mean_pf.roll, mean_pf.pitch, mean_pf.yaw);  
+
+    LOG_COUT_INFO(g_log,"Global localization." << " cnt: " << cur_loc_status_cnt_
+        <<",particle num: "<< ptc_num<<",w_pf: "<< weight_pf<<",cloud_ds: "<< cloud_ds->points.size());
+
+    if(ptc_num < 550 && weight_pf>localization_params_.weight_global_)
+    {
+      consist_cnt++;
+      if(consist_cnt > 10/*consist_cnt_thres_*/)
+      {
+        consist_cnt = 0;
+        LOG_COUT_INFO(g_log,"Global localization done. Current pose is " <<mean_pf.x<<" "<<mean_pf.y<<" "<<mean_pf.z
+          <<" "<<mean_pf.roll<<" "<<mean_pf.pitch<<" "<<mean_pf.yaw<< " weight: " << weight_pf);
+        global_loc_done_ = true;
+        setParticleNum(localization_params_.max_particle_num_local,localization_params_.min_particle_num_local);
+        cur_loc_status_cnt_ = 0;
+      }
+    }
+    else
+      consist_cnt = 0;
+  }
+
+  void MonteCarloLocalization::localLocalization()
+  {
+    PFMove(odomIncre_,cur_odom_noise_);
+
+    update(cloud_ds);
+    //TODO: goto different process,like blind tracking,pose tracking or laserodom tracking.
+    PFResample(); 
+  }
+
+  void MonteCarloLocalization::RelocPose(const int num_particles, 
     const float x_init,const float y_init, const float z_init, 
     const float roll_init, const float pitch_init,const float yaw_init)
   {
-      ParticleFilter::init(num_particles, x_init, y_init, z_init, roll_init,pitch_init,yaw_init,
+    set_pose_ = Particle(x_init, y_init, z_init, roll_init,pitch_init,yaw_init);
+    ParticleFilter::relocPose(num_particles, x_init, y_init, z_init, roll_init,pitch_init,yaw_init,
         localization_params_.init_x_dev_,localization_params_.init_y_dev_,localization_params_.init_z_dev_,
         localization_params_.init_roll_dev_,localization_params_.init_pitch_dev_,localization_params_.init_yaw_dev_);
+
+    setParticleNum(localization_params_.max_particle_num_global,localization_params_.min_particle_num_global);
+    cur_loc_status_cnt_ = 1;
+    global_loc_done_ = false;
   }
 
-  void MonteCarloLocalization::PFMove(const double delta_x, const double delta_y, const double delta_z, 
-    const double delta_roll, const double delta_pitch, const double delta_yaw)
+  void MonteCarloLocalization::PFMove(const Particle& odom_increment, const Particle& odom_increment_noise)
   {
-    ParticleFilter::predict(localization_params_.odom_x_mod_,localization_params_.odom_y_mod_
-      ,localization_params_.odom_z_mod_,localization_params_.odom_roll_mod_,
-      localization_params_.odom_pitch_mod_,localization_params_.odom_yaw_mod_,
-      delta_x,delta_y,delta_z,delta_roll,delta_pitch,delta_yaw);
+    VSCOMMON::tic("PFMove");
+    ParticleFilter::predict(odom_increment.x,odom_increment.y,odom_increment.z,odom_increment.roll,odom_increment.pitch,
+      odom_increment.yaw,odom_increment_noise.x,odom_increment_noise.y,odom_increment_noise.z,
+      odom_increment_noise.roll,odom_increment_noise.pitch,odom_increment_noise.yaw);
+    LOG_INFO(g_log,"PFMove time:"<<VSCOMMON::toc("PFMove") * 1000<<" ms");
   }
 
-  void MonteCarloLocalization::PFResample()
+  void MonteCarloLocalization::PFResample(const bool weight_multiply)
   {
-    if(global_init_num > 0)
-      {
-        addParticleWeight();
-        global_init_num--;
-      }
+    VSCOMMON::tic("Resample");
+    if(weight_multiply)
+      addParticleWeight();  //  for global location,weight multiply, speed converge
     else
       setParticleWeight();
     int sample_num = computeSampleNum();
-    if(global_init_num > 0)
-      sample_num = localization_params_.max_particle_num_global;
     uniformSample(sample_num);
+    LOG_INFO(g_log,"Resample time:"<<VSCOMMON::toc("Resample") * 1000<<" ms");
   }
 
   void MonteCarloLocalization::addParticleWeight()
@@ -116,9 +227,9 @@ namespace amcl3d
     LOG_INFO(g_log,"bdx: "<< xmin<<","<< xmax<<", bdy: "<< ymin<<","<< ymax<<", bdz: "
         << zmin<<","<< zmax <<", xwidth: "<< xwidth<<", "<< ywidth<<", "<< zwidth<<", "<< theta);
     if(xwidth*ywidth*zwidth == 0)
-      return localization_params_.min_particle_num;
+      return min_resamp_num_;
     else if(xwidth*ywidth*zwidth > 1e3)
-      return max_sample_num;
+      return max_resamp_num_;
 
     std::vector<std::vector<std::vector<std::vector<int>>>> grid(xwidth,std::vector<std::vector<std::vector<int>>>(ywidth,std::vector<std::vector<int>>(zwidth,std::vector<int>(theta,0))));
     for(uint32_t i = 0;i < p_.size();++i)
@@ -143,10 +254,10 @@ namespace amcl3d
 
     int sample_num = cnt * cnt_per_grid;
     LOG_INFO(g_log,"cnt: "<< cnt<<", sample_num: "<< sample_num);
-    if(sample_num < localization_params_.min_particle_num)
-      return localization_params_.min_particle_num;
-    if(sample_num > max_sample_num)
-      return max_sample_num;
+    if(sample_num < min_resamp_num_)
+      return min_resamp_num_;
+    if(sample_num > max_resamp_num_)
+      return max_resamp_num_;
     return sample_num;
   }
 }  // namespace amcl3d

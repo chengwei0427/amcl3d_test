@@ -70,7 +70,7 @@ public:
    * information of this enviroment map and the particle to create a loop that records the likeness between the sensor
    * point cloud and the map. Depending on the resemblance the particle acquires the weight.
    */
-  float computeCloudWeight(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, const float tx, const float ty,
+  float computeCloudWeight(const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud, const float tx, const float ty,
                            const float tz, const float roll, const float pitch, const float yaw) const;
 
   /*! \brief To check if the particle is into the map.
@@ -86,7 +86,7 @@ public:
    */
   bool isIntoMap(const float x, const float y, const float z) const;
 
-  bool loadPCD(std::string file_path,pcl::PointCloud < pcl::PointXYZ>::Ptr& input);
+  bool loadPCD(std::string file_path,pcl::PointCloud < pcl::PointXYZI>::Ptr& input);
 
   /*! \brief To create a vector that contains the grid data.
    *

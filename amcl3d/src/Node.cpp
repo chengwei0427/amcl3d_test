@@ -26,7 +26,7 @@
 namespace amcl3d
 {
 Node::Node(const std::string& str) : WORKING_DIR(str), nh_(ros::this_node::getName())
-,g_log(new VSCOMMON::Logger("MAIN")),loc_loop_(0),grid3d_(new Grid3d(g_log)), mcl_(new MonteCarloLocalization(g_log,grid3d_))
+,g_log(new VSCOMMON::Logger("MAIN")),grid3d_(new Grid3d(g_log)), mcl_(new MonteCarloLocalization(g_log,grid3d_))
 {
   using namespace VSCOMMON;
   std::cout<<WORKING_DIR+"log"<<std::endl;
@@ -36,7 +36,8 @@ Node::Node(const std::string& str) : WORKING_DIR(str), nh_(ros::this_node::getNa
   readLog4cppConfigure(logConfig);
   LOG_INFO(g_log, "TOOL_VERSION= " << TOOL_VERSION << " build:" << __DATE__ << " " << __TIME__ );
   readParamFromXML();
-  mcl_->setParams(amcl_params_);
+  mcl_->setParams(amcl_params_,parameters_);
+  mcl_->init();
   LOG_INFO(g_log, "Node initialized successful.");
 }
 
@@ -121,6 +122,8 @@ void Node::readParamFromXML()
 
   double min_xy_noise,min_z_noise,min_rp_noise,min_yaw_noise;
 
+  double weight_global;
+
   int resample_interval;
 
   double update_rate;
@@ -128,7 +131,7 @@ void Node::readParamFromXML()
   double a_th;
 
   //  amcl3d param
-  int min_particle_num;
+  int min_particle_num_local,min_particle_num_global;
   int max_particle_num_global;
   int max_particle_num_local;
 
@@ -167,13 +170,15 @@ void Node::readParamFromXML()
   READ_PARAM(update_rate)
   READ_PARAM(d_th)
   READ_PARAM(a_th)
-  READ_PARAM(min_particle_num)
+  READ_PARAM(min_particle_num_local)
+  READ_PARAM(min_particle_num_global)
   READ_PARAM(max_particle_num_global)
   READ_PARAM(max_particle_num_local)
   READ_PARAM(min_xy_noise)
   READ_PARAM(min_z_noise)
   READ_PARAM(min_rp_noise)
   READ_PARAM(min_yaw_noise)
+  READ_PARAM(weight_global)
     DECLARE_PARAM_READER_END
 
   parameters_.base_frame_id_ = base_frame_id;
@@ -199,7 +204,8 @@ void Node::readParamFromXML()
   parameters_.d_th_ = d_th;
   parameters_.a_th_ = a_th;
 
-  amcl_params_.min_particle_num = min_particle_num;
+  amcl_params_.min_particle_num_local = min_particle_num_local;
+  amcl_params_.min_particle_num_global = min_particle_num_global;
   amcl_params_.max_particle_num_global = max_particle_num_global;
   amcl_params_.max_particle_num_local = max_particle_num_local;
   amcl_params_.init_x_dev_ = init_x_dev;
@@ -218,6 +224,7 @@ void Node::readParamFromXML()
   amcl_params_.min_z_noise_ = min_z_noise;
   amcl_params_.min_rp_noise_ = min_rp_noise;
   amcl_params_.min_yaw_noise_ = min_yaw_noise;
+  amcl_params_.weight_global_ = weight_global;
 }
 
 void Node::publishMapPointCloud(const ros::TimerEvent&)
@@ -274,59 +281,23 @@ void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
   /* Check if an update must be performed or not */
   if (!checkUpdateThresholds())
     return;
-  LOG_INFO(g_log,"Begin process frame. loop:" << loc_loop_++);
+  
   static const ros::Duration update_interval(1.0 / parameters_.update_rate_);
   nextupdate_time_ = ros::Time::now() + update_interval;
 
   /* Apply voxel grid */
   VSCOMMON::tic("Filter");
-  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_src(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_src(new pcl::PointCloud<pcl::PointXYZI>);
   pcl::fromROSMsg(*msg, *cloud_src);
-  pcl::VoxelGrid<pcl::PointXYZ> sor;
-  sor.setInputCloud(cloud_src);
-  sor.setLeafSize(parameters_.voxel_size_, parameters_.voxel_size_, parameters_.voxel_size_);
-  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_down(new pcl::PointCloud<pcl::PointXYZ>);
-  sor.filter(*cloud_down);
-  cloud_down->header = cloud_src->header;
-  sensor_msgs::PointCloud2 cloud_down_msg;
-  pcl::toROSMsg(*cloud_down, cloud_down_msg);
-  cloud_filter_pub_.publish(cloud_down_msg);
-  LOG_INFO(g_log,"Filter time:"<<VSCOMMON::toc("Filter") * 1000<<" ms");
+
 
   /* Perform particle prediction based on odometry */
   odom_increment_eigen_ = lastupdatebase_2_odom_eigen_.inverse()*base_2_odom_eigen_;
 
-  float _t_x, _t_y, _t_z, _t_roll, _t_pitch, _t_yaw;
-  pcl::getTranslationAndEulerAngles(odom_increment_eigen_, _t_x, _t_y, _t_z, _t_roll, _t_pitch, _t_yaw);
-
-  const double delta_x = _t_x;
-  const double delta_y = _t_y;
-  const double delta_z = _t_z;
-  const double delta_roll = _t_roll;
-  const double delta_pitch = _t_pitch;
-  const double delta_yaw = _t_yaw;
-
-  VSCOMMON::tic("PFMove");
-  mcl_->PFMove(delta_x, delta_y, delta_z, delta_roll, delta_pitch, delta_yaw);
-  LOG_INFO(g_log,"PFMove time:"<<VSCOMMON::toc("PFMove") * 1000<<" ms"
-    <<"delta: "<< delta_x<<" "<< delta_y<<" "<< delta_z<<" " << VSCOMMON::rad2deg(delta_roll)
-    <<" "<< VSCOMMON::rad2deg(delta_pitch)<<" "<<  VSCOMMON::rad2deg(delta_yaw));
-
-  /* Perform particle update based on current point-cloud */
-  VSCOMMON::tic("Update");
-  mcl_->update(cloud_down);
-  LOG_INFO(g_log,"Update time:"<<VSCOMMON::toc("Update") * 1000<<" ms");
+  mcl_->processFrame(cloud_src,odom_increment_eigen_);
 
   //  best particle need compute before resample
   Particle best_p = mcl_->getBestParticle();
-  /* Do the resampling if needed */
-  VSCOMMON::tic("Resample");
-  static int n_updates = 0;
-  if (++n_updates > parameters_.resample_interval_)
-  {
-    n_updates = 0;
-    mcl_->PFResample();
-  }
 
   mean_p_ = mcl_->getMean();
 
@@ -334,9 +305,6 @@ void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
   lastupdatebase_2_odom_eigen_ = base_2_odom_eigen_;
   //lastupdatebase_2_odom_tf_ = base_2_odom_tf_;
 
-  LOG_INFO(g_log,"Resample time:"<<VSCOMMON::toc("Resample") * 1000<<" ms");
-  LOG_INFO(g_log,"Finish process frame. cost: " << VSCOMMON::toc("ProcessFrame") * 1000 << " ms."
-          <<" particle num:"<< mcl_->getParticle().size());
   LOG_INFO(g_log,"Current robot pose:" << mean_p_.x<<" "<< mean_p_.y<<" "<< mean_p_.z <<" "
           <<mean_p_.roll<<" " << mean_p_.pitch<<" "<< mean_p_.yaw << " weight:" << mean_p_.w);
 
@@ -370,10 +338,6 @@ Eigen::Quaternionf Node::eulerAngle2quaternion(float roll,float pitch,float yaw)
 
 void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
 {
-  /*double _o_roll, _o_pitch, _o_yaw;
-  tf::Matrix3x3(tf::Quaternion(msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
-                msg->pose.pose.orientation.z, msg->pose.pose.orientation.w)).getRPY(_o_roll, _o_pitch, _o_yaw);*/
-
   Eigen::Vector3f eulerAngle = quaternion2eulerAngle(msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
                                              msg->pose.pose.orientation.z, msg->pose.pose.orientation.w);
 
@@ -537,7 +501,7 @@ void Node::setInitialPose(const Eigen::Affine3f& init_pose)
   const float pitch_init = _s_pitch;
   const float yaw_init = _s_yaw;
 
-  mcl_->init(parameters_.num_particles_, x_init, y_init, z_init, roll_init, pitch_init, yaw_init);
+  mcl_->RelocPose(parameters_.num_particles_, x_init, y_init, z_init, roll_init, pitch_init, yaw_init);
 
   mean_p_ = mcl_->getMean();
   lastmean_p_ = mean_p_;

@@ -70,7 +70,7 @@ namespace amcl3d
   return true;
 }*/
 
-bool Grid3d::loadPCD(std::string file_path,pcl::PointCloud < pcl::PointXYZ>::Ptr& input)
+bool Grid3d::loadPCD(std::string file_path,pcl::PointCloud < pcl::PointXYZI>::Ptr& input)
 {
   #define PointType pcl::PointXYZI
   std::vector<pcl::PointCloud<PointType>::Ptr> corner_keyframes;
@@ -142,7 +142,7 @@ bool Grid3d::open(const std::string& map_path, const double sensor_dev)
   using namespace VSCOMMON;
   try
   {
-    pcl::PointCloud < pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud < pcl::PointXYZ>());
+    pcl::PointCloud < pcl::PointXYZI>::Ptr cloud(new pcl::PointCloud < pcl::PointXYZI>());
     VSCOMMON::tic("loadPCD");
     if(!loadPCD(map_path,cloud))
     {
@@ -192,7 +192,7 @@ bool Grid3d::open(const std::string& map_path, const double sensor_dev)
 }
 
 
-float Grid3d::computeCloudWeight(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, const float tx, const float ty,
+float Grid3d::computeCloudWeight(const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud, const float tx, const float ty,
                                  const float tz, const float roll, const float pitch, const float yaw) const
 {
   if (!grid_info_ || !pc_info_)
@@ -220,16 +220,16 @@ float Grid3d::computeCloudWeight(const pcl::PointCloud<pcl::PointXYZ>::Ptr& clou
 
   auto grid_ptr = grid_info_->grid.data();
   const auto grid_size = grid_info_->grid.size();
-  pcl::PointXYZ new_point;
+  pcl::PointXYZI new_point;
   uint32_t ix, iy, iz;
   uint32_t grid_index;
   float weight = 0.;
   int n = 0;
   const float error_z = 0;
 
-  for (pcl::PointCloud<pcl::PointXYZ>::const_iterator it = cloud->begin(); it != cloud->end(); ++it)
+  for (pcl::PointCloud<pcl::PointXYZI>::const_iterator it = cloud->begin(); it != cloud->end(); ++it)
   {
-    auto point = dynamic_cast<const pcl::PointXYZ*>(&(*it));
+    auto point = dynamic_cast<const pcl::PointXYZI*>(&(*it));
     if (point == nullptr)
       continue;
 

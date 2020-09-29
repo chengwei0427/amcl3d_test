@@ -185,7 +185,7 @@ private:
   std::string bin_dir = WORKING_DIR;
   std::string path_param = WORKING_DIR + "params/config/amcl3d_param.xml";
   VSCOMMON::LoggerPtr g_log;
-  int loc_loop_; /*process pointcloud loop num*/
+  
 
   Parameters parameters_; /*!< Instance of the Parameters class */
   LocalizationParam amcl_params_;
