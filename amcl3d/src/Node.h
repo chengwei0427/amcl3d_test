@@ -18,11 +18,14 @@
 #pragma once
 
 #include "Parameters.h"
-#include "ParticleFilter.h"  //! Include Grid.hpp
+#include "amcl3d.h"  //! Include Grid.hpp
 
 #include <rosinrange_msg/RangePose.h>
 #include <tf/transform_broadcaster.h>
 #include <nav_msgs/Odometry.h>
+#include <geometry_msgs/Point32.h>
+#include <geometry_msgs/PoseArray.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
 
 #include <common/vs_common.h>
 #include <common/vs_utils.h>
@@ -111,17 +114,6 @@ private:
 
   void initialPoseCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr& msg);
 
-  /*! \brief To process the range result of the radio-range sensors.
-   *
-   * \param msg Range message of radio-range sensors.
-   *
-   * It is responsible for grouping the positions of placement of the sensors and grouping them together with the range
-   * measurement. In this way, the data is entered in the update performed in Node:pointcloudCallback, more specifically
-   * in ParticleFilter:update. Also, calculates the average of the particles (estimated position of the UAV) to send all
-   * the necessary data for the representation in RViz.
-   */
-  //void rangeCallback(const rosinrange_msg::RangePoseConstPtr& msg);
-
   /*! \brief To check motion and time thresholds for AMCL update.
    *
    * \return <b>bool=False</b> - If there are problems with the checks.
@@ -146,8 +138,7 @@ private:
    * taking into account the given pose and the marked deviations, to later publish them. In this way, the particles are
    * initialized around the initial pose, the threshold is marked by deviations.
    */
-  void setInitialPose(const tf::Transform& init_pose, const float x_dev, const float y_dev, const float z_dev,
-                      const float a_dev);
+  void setInitialPose(const tf::Transform& init_pose);
 
   /*! \brief Return yaw from a given TF.
    *
@@ -158,17 +149,6 @@ private:
    */
   double getYawFromTf(const tf::Transform& tf);
 
-  /*! \brief To show range sensors in RViz.
-   *
-   * \param anchor_id Identification of the radio-range sensor.
-   * \param r Range measurement of radio-range sensor.
-   * \param uav Estimated UAV pose.
-   * \param anchor Radio-range sensor pose in the environment.
-   *
-   * It lets show all thing relational with the radio-range sensors in RViz.
-   */
-  void rvizMarkerPublish(const uint32_t anchor_id, const float r, const geometry_msgs::Point& uav,
-                         const geometry_msgs::Point& anchor);
 
   std::string WORKING_DIR = "./";
   std::string bin_dir = WORKING_DIR;
@@ -177,8 +157,9 @@ private:
   int loc_loop_; /*process pointcloud loop num*/
 
   Parameters parameters_; /*!< Instance of the Parameters class */
+  LocalizationParam amcl_params_;
   Grid3d* grid3d_;         /*!< Instance of the Grid3d class */
-  ParticleFilter* pf_;     /*!< Instance of the ParticleFilter class */
+  MonteCarloLocalization* mcl_;     /*!< Instance of the ParticleFilter class */
 
   ros::NodeHandle nh_; /*!< ROS Node Handle */
 
@@ -190,22 +171,19 @@ private:
   ros::Publisher grid_slice_pub_;   /*!< Publisher of map grid slice message */
   ros::Timer grid_slice_pub_timer_; /*!< Timer for publish map grid slice message */
 
-  bool is_odom_{ false };  /*!< Flag to know the initialize of odometry */
+  bool is_odom_arrive_{ false };  /*!< Flag to know the initialize of odometry */
   bool amcl_out_{ false }; /*!< Flag to know jumps in algorithm */
   double roll_{ 0 };       /*!< Roll angle */
   double pitch_{ 0 };      /*!< Pitch angle */
 
-  std::vector<Range> range_data; /*!< Vector that contains the information of radio-range sensor */
   Particle mean_p_;              /*!< Instance of the Particle struct for particles of filter */
   Particle lastmean_p_;          /*!< Instance of the Particle struct for previous update particles of filter */
 
   ros::Subscriber point_sub_; /*!< UAV point cloud subscriber */
   ros::Subscriber odom_sub_;  /*!< Odometry subscriber */
-  ros::Subscriber range_sub_; /*!< Radio-range sensor information subscriber */
   ros::Subscriber initialPose_sub_;
 
   ros::Publisher particles_pose_pub_; /*!< Particles publisher */
-  ros::Publisher range_markers_pub_;  /*!< Radio-range sensor information publisher */
   ros::Publisher odom_base_pub_;      /*!< Estimated pose UAV publisher */
   ros::Publisher cloud_filter_pub_;   /*!< Filtered point cloud publisher */
 

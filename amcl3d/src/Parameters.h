@@ -42,35 +42,22 @@ public:
   double init_z_; /*!< Start z-axis position */
   double init_a_; /*!< Start yaw angle */
 
-  double init_x_dev_; /*!< Thresholds x-axis position in initialization*/
-  double init_y_dev_; /*!< Thresholds y-axis position in initialization*/
-  double init_z_dev_; /*!< Thresholds z-axis position in initialization*/
-  double init_a_dev_; /*!< Thresholds yaw angle in initialization*/
+
 
   double grid_slice_z_;             /*!< Height of grid slice */
   double publish_point_cloud_rate_; /*!< Map point cloud publishing rate */
   double publish_grid_slice_rate_;  /*!< map grid slice publishing rate */
 
   double sensor_dev_;   /*!< Desviation of 3D point cloud sensor */
-  double sensor_range_; /*!< Desviation of measurement of radio-range sensor */
   double voxel_size_;   /*!< Size of voxel grid filter */
 
   int num_particles_; /*!< Particle number in the filter */
-
-  double odom_x_mod_; /*!< Thresholds x-axis position in the prediction */
-  double odom_y_mod_; /*!< Thresholds y-axis position in the prediction */
-  double odom_z_mod_; /*!< Thresholds z-axis position in the prediction */
-  double odom_a_mod_; /*!< Thresholds yaw angle in the prediction */
 
   int resample_interval_; /*!< Resampling control */
 
   double update_rate_; /*!< Filter updating frequency */
   double d_th_;        /*!< Threshold in the distance for the update */
   double a_th_;        /*!< Threshold in yaw angle for the update */
-
-  double take_off_height_; /*!< Threshold of UAV takeoff */
-
-  double alpha_; /*!< Percentage weight between point cloud and range sensor */
 
 private:
   /*! \brief To check parameter errors.

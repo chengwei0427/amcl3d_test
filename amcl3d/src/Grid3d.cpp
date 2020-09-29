@@ -126,7 +126,7 @@ bool Grid3d::loadPCD(std::string file_path,pcl::PointCloud < pcl::PointXYZ>::Ptr
       *showcloud += *(corner_keyframes[i]);
     }
     pcl::VoxelGrid<PointType> downsample;
-    downsample.setLeafSize(0.5, 0.5, 0.5);
+    downsample.setLeafSize(0.3, 0.3, 0.3);
     downsample.setInputCloud(showcloud);
     downsample.filter(*showcloud_ds);
     //showCloud(showcloud_ds);
@@ -154,13 +154,14 @@ bool Grid3d::open(const std::string& map_path, const double sensor_dev)
 
     //pc_info_ = computePointCloud(octo_tree); // Compute the point-cloud associated to the octomap 
     VSCOMMON::tic("computePC");
-    pc_info_ = computePointCloud(cloud,0.5);
-    double time_computePC = VSCOMMON::toc("loadPCD") * 1000;
+    pc_info_ = computePointCloud(cloud,0.3);
+    double time_computePC = VSCOMMON::toc("computePC") * 1000;
     LOG_COUT_INFO(g_log,
              "Map size: X: "<<pc_info_->octo_min_x<<" to "<<pc_info_->octo_max_x
              <<", Y: "<<pc_info_->octo_min_y<<" to "<<pc_info_->octo_max_y
              <<", Z: "<<pc_info_->octo_min_z<<"to "<<pc_info_->octo_max_z
-             <<", Res: "<<pc_info_->octo_resol<<", computePointCloud takes: "<< time_computePC<<" ms.");
+             <<", Res: "<<pc_info_->octo_resol<<", computePointCloud takes: "
+             << time_computePC<<" ms. cloud size: "<< cloud->size());
   }
   catch (std::exception& e)
   {
@@ -173,8 +174,8 @@ bool Grid3d::open(const std::string& map_path, const double sensor_dev)
   /*if (map_path.compare(map_path.length() - 3, 3, ".bt") == 0)
     grid_path = map_path.substr(0, map_path.find(".bt")) + ".grid";
   if (map_path.compare(map_path.length() - 3, 3, ".ot") == 0)
-    grid_path = map_path.substr(0, map_path.find(".ot")) + ".grid";
-*/
+    grid_path = map_path.substr(0, map_path.find(".ot")) + ".grid";*/
+
   if (loadGrid(grid_path, sensor_dev))
     return true;
 

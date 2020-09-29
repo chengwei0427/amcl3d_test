@@ -129,7 +129,8 @@ Grid3dInfo::Ptr computeGrid(PointCloudInfo::Ptr pc_info, const double sensor_dev
 
   const auto grid_size = grid_info->size_x * grid_info->size_y * grid_info->size_z;
   grid_info->grid.resize(grid_size);
-
+  std::cout<<"grid size: "<< grid_size<<std::endl;
+  
   /* Setup kdtree */
   pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
   kdtree.setInputCloud(pc_info->cloud);

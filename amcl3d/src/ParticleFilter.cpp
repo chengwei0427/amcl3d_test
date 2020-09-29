@@ -19,28 +19,13 @@
 
 namespace amcl3d
 {
-ParticleFilter::ParticleFilter(VSCOMMON::LoggerPtr& t_log) : generator_(rd_()),g_log(t_log)
+ParticleFilter::ParticleFilter(VSCOMMON::LoggerPtr& t_log, Grid3d* grid3d) 
+  : generator_(rd_()),g_log(t_log),global_init_num(0),grid3d_(grid3d)
 {
 }
 
 ParticleFilter::~ParticleFilter()
 {
-}
-
-void ParticleFilter::buildParticlesPoseMsg(geometry_msgs::PoseArray& msg) const
-{
-  msg.poses.resize(p_.size());
-
-  for (uint32_t i = 0; i < p_.size(); ++i)
-  {
-    msg.poses[i].position.x = static_cast<double>(p_[i].x);
-    msg.poses[i].position.y = static_cast<double>(p_[i].y);
-    msg.poses[i].position.z = static_cast<double>(p_[i].z);
-    msg.poses[i].orientation.x = 0.;
-    msg.poses[i].orientation.y = 0.;
-    msg.poses[i].orientation.z = sin(static_cast<double>(p_[i].a * 0.5f));
-    msg.poses[i].orientation.w = cos(static_cast<double>(p_[i].a * 0.5f));
-  }
 }
 
 void ParticleFilter::init(const int num_particles, const float x_init, const float y_init, const float z_init,
@@ -92,6 +77,7 @@ void ParticleFilter::init(const int num_particles, const float x_init, const flo
   mean_ = mean_p;
 
   initialized_ = true;
+  global_init_num = 10;
 }
 
 void ParticleFilter::predict(const double odom_x_mod, const double odom_y_mod, const double odom_z_mod,
@@ -118,14 +104,11 @@ void ParticleFilter::predict(const double odom_x_mod, const double odom_y_mod, c
   }
 }
 
-void ParticleFilter::update(const Grid3d* grid3d, const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
-                            const std::vector<Range>& range_data, const double alpha, const double sigma,
+void ParticleFilter::update(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
                             const double roll, const double pitch)
 {
   /*  Incorporate measurements */
-  float wtp = 0, wtr = 0;
-
-  VSCOMMON::tic("pf_update");
+  // VSCOMMON::tic("pf_update");
   for (uint32_t i = 0; i < p_.size(); ++i)
   {
     /*  Get particle information */
@@ -134,7 +117,7 @@ void ParticleFilter::update(const Grid3d* grid3d, const pcl::PointCloud<pcl::Poi
     float tz = p_[i].z;
 
     /*  Check the particle is into the map */
-    if (!grid3d->isIntoMap(tx, ty, tz))
+    if (!grid3d_->isIntoMap(tx, ty, tz))
     {
       // std::cout << "Not into map: " << grid3d_.isIntoMap(tx, ty, tz-1.0) << std::endl;
       p_[i].w = 0;
@@ -142,55 +125,69 @@ void ParticleFilter::update(const Grid3d* grid3d, const pcl::PointCloud<pcl::Poi
     }
 
     /*  Evaluate the weight of the point cloud */
-    p_[i].wp = grid3d->computeCloudWeight(cloud, tx, ty, tz, roll, pitch, p_[i].a);
-
-    /*  Evaluate the weight of the range sensors */
-    p_[i].wr = computeRangeWeight(tx, ty, tz, range_data, sigma);
-
-    /*  Increase the summatory of weights */
-    wtp += p_[i].wp;
-    wtr += p_[i].wr;
+    p_[i].w = grid3d_->computeCloudWeight(cloud, tx, ty, tz, roll, pitch, p_[i].a);  
   }
-  LOG_INFO(g_log,"PF update time : "<<VSCOMMON::toc("pf_update")*1000<<" ms.");
+  // LOG_INFO(g_log,"PF update time : "<<VSCOMMON::toc("pf_update")*1000<<" ms.");
+}
 
+void ParticleFilter::particleNormalize()
+{
   /*  Normalize all weights */
+  float wtp = 0,w_max = 0;
+  for(uint32_t i = 0;i < p_.size();i++)
+  {
+    if(p_[i].w > 0)
+      wtp += p_[i].w;
+    if(p_[i].w > w_max)
+      w_max = p_[i].w;
+  }
   float wt = 0;
   for (uint32_t i = 0; i < p_.size(); ++i)
   {
     if (wtp > 0)
-      p_[i].wp /= wtp;
+      p_[i].w /= wtp;
     else
-      p_[i].wp = 0;
+      p_[i].w = 0;
 
-    if (wtr > 0)
-      p_[i].wr /= wtr;
-    else
-      p_[i].wr = 0;
-
-    if (!grid3d->isIntoMap(p_[i].x, p_[i].y, p_[i].z))
+    if (!grid3d_->isIntoMap(p_[i].x, p_[i].y, p_[i].z))
     {
       /* std::cout << "Not into map: " << grid3d_.isIntoMap(tx, ty, tz-1.0) << std::endl; */
       p_[i].w = 0;
     }
     else
-      p_[i].w = p_[i].wp * alpha + p_[i].wr * (1 - alpha);
+      p_[i].w = p_[i].w;
     wt += p_[i].w;
   }
+}
 
+Particle ParticleFilter::getMean()
+{
   Particle mean_p;
+  float w_max = 0;
   for (uint32_t i = 0; i < p_.size(); ++i)
   {
-    if (wt > 0)
-      p_[i].w /= wt;
-    else
-      p_[i].w = 0;
-
     mean_p.x += p_[i].w * p_[i].x;
     mean_p.y += p_[i].w * p_[i].y;
     mean_p.z += p_[i].w * p_[i].z;
     mean_p.a += p_[i].w * p_[i].a;
+    if(p_[i].w > w_max)
+      w_max = p_[i].w;
   }
+  mean_p.w = w_max; //  out put max pf weight
   mean_ = mean_p;
+  return mean_p;
+}
+
+Particle ParticleFilter::getBestParticle()
+{
+  Particle best_p;
+  best_p.w = 0;
+  for (uint32_t i = 0; i < p_.size(); ++i)
+  {
+    if(p_[i].w > best_p.w)
+      best_p = p_[i];
+  }
+  return best_p;
 }
 
 void ParticleFilter::resample()
@@ -219,26 +216,30 @@ void ParticleFilter::resample()
   p_ = new_p;
 }
 
-float ParticleFilter::computeRangeWeight(const float x, const float y, const float z,
-                                         const std::vector<Range>& range_data, const double sigma)
+void ParticleFilter::uniformSample(int& sample_num)
 {
-  if (range_data.empty())
-    return 0;
-
-  float w = 1;
-  const float k1 = 1.f / (sigma * sqrt(2 * M_PI));
-  const float k2 = 0.5f / (sigma * sigma);
-  float ax, ay, az, r;
-  for (uint32_t i = 0; i < range_data.size(); ++i)
+  particleNormalize();
+  std::vector<float> left_sum(p_.size());
+  left_sum[0] = p_[0].w;
+  for(int i=1;i<p_.size();i++)
   {
-    ax = range_data[i].ax;
-    ay = range_data[i].ay;
-    az = range_data[i].az;
-    r = sqrt((x - ax) * (x - ax) + (y - ay) * (y - ay) + (z - az) * (z - az));
-    w *= k1 * exp(-k2 * (r - range_data[i].r) * (r - range_data[i].r));
+    left_sum[i] = p_[i].w + left_sum[i - 1];
   }
 
-  return w;
+  std::vector<Particle> new_p(sample_num);
+  const float inteval = 1.0f / sample_num;
+  float samp_value = 0.5f / sample_num;
+  int idx=0;
+  for (int i = 0; i<left_sum.size(); i++) {
+    while(idx < sample_num && left_sum[i] > samp_value) {
+      new_p[idx] = p_[i];
+      new_p[idx].w = inteval;
+      idx++;
+      samp_value += inteval;
+    }
+  }
+  p_ = new_p;
+  // std::cout<<"sample_num: "<< sample_num<<" --> "<< p_.size()<<std::endl;
 }
 
 float ParticleFilter::ranGaussian(const double mean, const double sigma)

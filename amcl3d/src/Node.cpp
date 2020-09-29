@@ -20,14 +20,14 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/point_cloud2_iterator.h>
-#include <visualization_msgs/Marker.h>
+//#include <visualization_msgs/Marker.h>
 
 
 
 namespace amcl3d
 {
 Node::Node(const std::string& str) : WORKING_DIR(str), nh_(ros::this_node::getName())
-,g_log(new VSCOMMON::Logger("MAIN")),loc_loop_(0),grid3d_(new Grid3d(g_log)), pf_(new ParticleFilter(g_log))
+,g_log(new VSCOMMON::Logger("MAIN")),loc_loop_(0),grid3d_(new Grid3d(g_log)), mcl_(new MonteCarloLocalization(g_log,grid3d_))
 {
   using namespace VSCOMMON;
   std::cout<<WORKING_DIR+"log"<<std::endl;
@@ -37,6 +37,7 @@ Node::Node(const std::string& str) : WORKING_DIR(str), nh_(ros::this_node::getNa
   readLog4cppConfigure(logConfig);
   LOG_INFO(g_log, "TOOL_VERSION= " << TOOL_VERSION << " build:" << __DATE__ << " " << __TIME__ );
   readParamFromXML();
+  mcl_->setParams(amcl_params_);
   LOG_INFO(g_log, "Node initialized successful.");
 }
 
@@ -73,10 +74,7 @@ void Node::spin()
   odom_sub_ = nh_.subscribe("/odometry", 1, &Node::odomCallback, this);
   initialPose_sub_ = nh_.subscribe("/initialpose",1,&Node::initialPoseCallback,this);
 
-  //range_sub_ = nh_.subscribe("/radiorange_sensor", 1, &Node::rangeCallback, this);
-
   particles_pose_pub_ = nh_.advertise<geometry_msgs::PoseArray>("particle_cloud", 1, true);
-  //range_markers_pub_ = nh_.advertise<visualization_msgs::Marker>("range", 0);
   odom_base_pub_ = nh_.advertise<geometry_msgs::TransformStamped>("base_transform", 1);
 
   cloud_filter_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("pointcloud_filtered", 0);
@@ -113,7 +111,6 @@ void Node::readParamFromXML()
   double publish_grid_slice_rate;
 
   double sensor_dev;
-  double sensor_range;
   double voxel_size;
 
   double num_particles;
@@ -125,8 +122,11 @@ void Node::readParamFromXML()
   double update_rate;
   double d_th;
   double a_th;
-  double take_off_height;
-  double alpha;
+
+  //  amcl3d param
+  int min_particle_num;
+  int max_particle_num_global;
+  int max_particle_num_local;
 
   LOAD_PARAM_FROM_XML(path_param.c_str());
   DECLARE_PARAM_READER_BEGIN(AMCL3D)
@@ -147,7 +147,6 @@ void Node::readParamFromXML()
   READ_PARAM(publish_point_cloud_rate)
   READ_PARAM(publish_grid_slice_rate)
   READ_PARAM(sensor_dev)
-  READ_PARAM(sensor_range)
   READ_PARAM(voxel_size)
   READ_PARAM(num_particles)
   READ_PARAM(odom_x_mod)
@@ -158,8 +157,9 @@ void Node::readParamFromXML()
   READ_PARAM(update_rate)
   READ_PARAM(d_th)
   READ_PARAM(a_th)
-  READ_PARAM(take_off_height)
-  READ_PARAM(alpha)
+  READ_PARAM(min_particle_num)
+  READ_PARAM(max_particle_num_global)
+  READ_PARAM(max_particle_num_local)
     DECLARE_PARAM_READER_END
 
   parameters_.base_frame_id_ = base_frame_id;
@@ -171,27 +171,29 @@ void Node::readParamFromXML()
   parameters_.init_y_ = init_y;
   parameters_.init_z_ = init_z;
   parameters_.init_a_ = init_a;
-  parameters_.init_x_dev_ = init_x_dev;
-  parameters_.init_y_dev_ = init_y_dev;
-  parameters_.init_z_dev_ = init_z_dev;
-  parameters_.init_a_dev_ = init_a_dev;
+
   parameters_.grid_slice_z_ = grid_slice_z;
   parameters_.publish_point_cloud_rate_ = publish_point_cloud_rate;
   parameters_.publish_grid_slice_rate_ = publish_grid_slice_rate;
   parameters_.sensor_dev_ = sensor_dev;
-  parameters_.sensor_range_ = sensor_range;
   parameters_.voxel_size_ = voxel_size;
   parameters_.num_particles_ = num_particles;
-  parameters_.odom_x_mod_ = odom_x_mod;
-  parameters_.odom_y_mod_ = odom_y_mod;
-  parameters_.odom_z_mod_ = odom_z_mod;
-  parameters_.odom_a_mod_ = odom_a_mod;
   parameters_.resample_interval_ = resample_interval;
   parameters_.update_rate_ = update_rate;
   parameters_.d_th_ = d_th;
   parameters_.a_th_ = a_th;
-  parameters_.take_off_height_ = take_off_height;
-  parameters_.alpha_ = alpha;
+
+  amcl_params_.min_particle_num = min_particle_num;
+  amcl_params_.max_particle_num_global = max_particle_num_global;
+  amcl_params_.max_particle_num_local = max_particle_num_local;
+  amcl_params_.init_x_dev_ = init_x_dev;
+  amcl_params_.init_y_dev_ = init_y_dev;
+  amcl_params_.init_z_dev_ = init_z_dev;
+  amcl_params_.init_a_dev_ = init_a_dev;
+  amcl_params_.odom_x_mod_ = odom_x_mod;
+  amcl_params_.odom_y_mod_ = odom_y_mod;
+  amcl_params_.odom_z_mod_ = odom_z_mod;
+  amcl_params_.odom_a_mod_ = odom_a_mod;
 }
 
 void Node::publishMapPointCloud(const ros::TimerEvent&)
@@ -213,12 +215,24 @@ void Node::publishGridSlice(const ros::TimerEvent&)
 void Node::publishParticles()
 {
   /* If the filter is not initialized then exit */
-  if (!pf_->isInitialized())
+  if (!mcl_->isInitialized())
     return;
 
   /* Build the msg based on the particles position and orientation */
+  std::vector<Particle> pf_vec = mcl_->getParticle();
+
   geometry_msgs::PoseArray msg;
-  pf_->buildParticlesPoseMsg(msg);
+  msg.poses.resize(pf_vec.size());
+  for (uint32_t i = 0; i < pf_vec.size(); ++i)
+  {
+    msg.poses[i].position.x = static_cast<double>(pf_vec[i].x);
+    msg.poses[i].position.y = static_cast<double>(pf_vec[i].y);
+    msg.poses[i].position.z = static_cast<double>(pf_vec[i].z);
+    msg.poses[i].orientation.x = 0.;
+    msg.poses[i].orientation.y = 0.;
+    msg.poses[i].orientation.z = sin(static_cast<double>(pf_vec[i].a * 0.5f));
+    msg.poses[i].orientation.w = cos(static_cast<double>(pf_vec[i].a * 0.5f));
+  }
   msg.header.stamp = ros::Time::now();
   msg.header.frame_id = parameters_.global_frame_id_;
 
@@ -240,13 +254,14 @@ void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
 {
   //LOG_INFO(g_log,"pointcloudCallback open");
 
-  if (!is_odom_)
+  if (!is_odom_arrive_)
   {
     using namespace VSCOMMON;
     LOG_COUT_WARN(g_log,__FUNCTION__,"Odometry transform not received");
     return;
   }
 
+  VSCOMMON::tic("ProcessFrame");
   /* Check if an update must be performed or not */
   if (!checkUpdateThresholds())
     return;
@@ -276,34 +291,41 @@ void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
   const double delta_z = odom_increment_tf_.getOrigin().getZ();
   const double delta_a = getYawFromTf(odom_increment_tf_);
 
-  VSCOMMON::tic("Predict");
-  pf_->predict(parameters_.odom_x_mod_, parameters_.odom_y_mod_, parameters_.odom_z_mod_, parameters_.odom_a_mod_,
-              delta_x, delta_y, delta_z, delta_a);
-  LOG_INFO(g_log,"Predict time:"<<VSCOMMON::toc("Predict") * 1000<<" ms");
+  VSCOMMON::tic("PFMove");
+  mcl_->PFMove(delta_x, delta_y, delta_z, delta_a);
+  LOG_INFO(g_log,"PFMove time:"<<VSCOMMON::toc("PFMove") * 1000<<" ms");
 
   /* Perform particle update based on current point-cloud */
   VSCOMMON::tic("Update");
-  pf_->update(grid3d_, cloud_down, range_data, parameters_.alpha_, parameters_.sensor_range_, roll_, pitch_);
+  mcl_->update(cloud_down, roll_, pitch_);
   LOG_INFO(g_log,"Update time:"<<VSCOMMON::toc("Update") * 1000<<" ms");
 
-  mean_p_ = pf_->getMean();
-  ros::Time pf_stamp = msg->header.stamp;
-  // publishPoseTransfrom(pf_stamp);
-  /* Clean the range buffer */
-  range_data.clear();
-
-  /* Update time and transform information */
-  lastupdatebase_2_odom_tf_ = base_2_odom_tf_;
-
+  //  best particle need compute before resample
+  Particle best_p = mcl_->getBestParticle();
   /* Do the resampling if needed */
   VSCOMMON::tic("Resample");
   static int n_updates = 0;
   if (++n_updates > parameters_.resample_interval_)
   {
     n_updates = 0;
-    pf_->resample();
+    mcl_->PFResample();
   }
-  LOG_INFO(g_log,"Resample time:"<<VSCOMMON::toc("Update") * 1000<<" ms");
+
+  mean_p_ = mcl_->getMean();
+  ros::Time pf_stamp = msg->header.stamp;
+  // publishPoseTransfrom(pf_stamp);
+
+  /* Update time and transform information */
+  lastupdatebase_2_odom_tf_ = base_2_odom_tf_;
+
+  LOG_INFO(g_log,"Resample time:"<<VSCOMMON::toc("Resample") * 1000<<" ms");
+  LOG_INFO(g_log,"Finish process frame. cost: " << VSCOMMON::toc("ProcessFrame") * 1000 << " ms."
+          <<" particle num:"<< mcl_->getParticle().size());
+  LOG_INFO(g_log,"Current robot pose:" << mean_p_.x<<" "<< mean_p_.y<<" "<< mean_p_.z <<" "
+          << mean_p_.a << " weight:" << mean_p_.w);
+
+  LOG_INFO(g_log,"Current robot bests pose:" << best_p.x<<" "<< best_p.y<<" "<< best_p.z <<" "
+          << best_p.a << " weight:" << best_p.w);
 
   /* Publish particles */
   publishParticles();
@@ -343,9 +365,9 @@ void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
   tf_br.sendTransform(
       tf::StampedTransform(base_2_odom_tf_, ros::Time::now(), parameters_.odom_frame_id_, parameters_.base_frame_id_));
 
-  if (!is_odom_)
+  if (!is_odom_arrive_)
   {
-    is_odom_ = true;
+    is_odom_arrive_ = true;
 
     lastbase_2_world_tf_ = initodom_2_world_tf_ * base_2_odom_tf_;
     lastodom_2_world_tf_ = initodom_2_world_tf_;
@@ -454,10 +476,10 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
                                              msg->pose.pose.orientation.z, msg->pose.pose.orientation.w));
 
   /* If the filter is not initialized then exit */
-  if (!pf_->isInitialized())
+  if (!mcl_->isInitialized())
   {
     using namespace VSCOMMON;
-    LOG_COUT_WARN(g_log,__FUNCTION__,"Filter not initialized yet, waiting for initial pose.");
+    LOG_COUT_WARN(g_log,__FUNCTION__,"amcl3d not initialized yet, waiting for initial pose.");
     if (parameters_.set_initial_pose_)
     {
       tf::Transform init_pose;
@@ -465,8 +487,7 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
       init_pose.setRotation(tf::Quaternion(0.0, 0.0, sin(parameters_.init_a_ * 0.5), cos(parameters_.init_a_ * 0.5)));
 
       LOG_COUT_INFO(g_log,__FUNCTION__<<" "<<__LINE__<<" : set initial pose here.");
-      setInitialPose(init_pose, parameters_.init_x_dev_, parameters_.init_y_dev_, parameters_.init_z_dev_,
-                     parameters_.init_a_dev_);
+      setInitialPose(init_pose);
     }
     return;
   }
@@ -479,29 +500,33 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
   tf_br.sendTransform(
       tf::StampedTransform(base_2_odom_tf_, ros::Time::now(), parameters_.odom_frame_id_, parameters_.base_frame_id_));
 
-  if (!is_odom_)
+  if (!is_odom_arrive_)
   {
-    is_odom_ = true;
-
-    lastbase_2_world_tf_ = initodom_2_world_tf_ * base_2_odom_tf_;
-    lastodom_2_world_tf_ = initodom_2_world_tf_;
+    is_odom_arrive_ = true;
+    //  may not right here
+    //lastbase_2_world_tf_ = initodom_2_world_tf_ * base_2_odom_tf_;
+    //lastodom_2_world_tf_ = initodom_2_world_tf_;
+    lastbase_2_world_tf_ = initodom_2_world_tf_;
+    lastodom_2_world_tf_ = lastbase_2_world_tf_ * base_2_odom_tf_.inverse();
   }
 
-  static bool has_takenoff = false;
+  /*static bool has_takenoff = false; //  take off or not
   if (!has_takenoff)
   {
     using namespace VSCOMMON;
     LOG_COUT_WARN(g_log,__FUNCTION__,"Not <<taken off>> yet");
 
-    /* Check takeoff height */
+    // Check takeoff height 
     has_takenoff = base_2_odom_tf_.getOrigin().getZ() > parameters_.take_off_height_;
 
-    lastbase_2_world_tf_ = initodom_2_world_tf_ * base_2_odom_tf_;
-    lastodom_2_world_tf_ = initodom_2_world_tf_;
+    //lastbase_2_world_tf_ = initodom_2_world_tf_ * base_2_odom_tf_;
+    //lastodom_2_world_tf_ = initodom_2_world_tf_;
+    lastbase_2_world_tf_ = initodom_2_world_tf_;
+    lastodom_2_world_tf_ = lastbase_2_world_tf_ * base_2_odom_tf_.inverse();
 
-    lastmean_p_ = mean_p_;  // for not 'jumping' whenever has_takenoff is true */
+    lastmean_p_ = mean_p_;  // for not 'jumping' whenever has_takenoff is true 
   }
-  else
+  else*/
   {
     /* Check if AMCL went wrong (nan, inf) */
     if (std::isnan(mean_p_.x) || std::isnan(mean_p_.y) || std::isnan(mean_p_.z) || std::isnan(mean_p_.a))
@@ -551,6 +576,7 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
       q.setRPY(roll_, pitch_, mean_p_.a);
       base_2_world_tf.setRotation(q);
 
+      //  interpolate pose use odom pose
       base_2_world_tf = base_2_world_tf * lastupdatebase_2_odom_tf_.inverse() * base_2_odom_tf_;
 
       lastmean_p_ = mean_p_;
@@ -562,6 +588,7 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
     }
     else
     {
+      //  无amcl定位数据，里程计航迹推演
       lastbase_2_world_tf_ = lastbase_2_world_tf_ * amcl_out_lastbase_2_odom_tf_.inverse() * base_2_odom_tf_;
       amcl_out_lastbase_2_odom_tf_ = base_2_odom_tf_;
     }
@@ -579,8 +606,8 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
   odom_2_base_tf.transform.rotation.y = lastbase_2_world_tf_.getRotation().getY();
   odom_2_base_tf.transform.rotation.z = lastbase_2_world_tf_.getRotation().getZ();
   odom_2_base_tf.transform.rotation.w = lastbase_2_world_tf_.getRotation().getW();
-  odom_base_pub_.publish(odom_2_base_tf);
-
+  //odom_base_pub_.publish(odom_2_base_tf);
+  //  send transform between odom and world frame
   tf_br.sendTransform(tf::StampedTransform(lastodom_2_world_tf_, ros::Time::now(), parameters_.global_frame_id_,
                                            parameters_.odom_frame_id_));
 
@@ -595,30 +622,8 @@ void Node::initialPoseCallback(const geometry_msgs::PoseWithCovarianceStampedCon
        msg->pose.pose.orientation.z, msg->pose.pose.orientation.w));
       using namespace VSCOMMON;
       LOG_COUT_INFO(g_log,__FUNCTION__<<" "<<__LINE__<<" : get input initial pose here.");
-      setInitialPose(init_pose, parameters_.init_x_dev_, parameters_.init_y_dev_, parameters_.init_z_dev_,
-                     parameters_.init_a_dev_);
+      setInitialPose(init_pose);
 }
-
-/*void Node::rangeCallback(const rosinrange_msg::RangePoseConstPtr& msg)
-{
-  ROS_DEBUG("rangeCallback open");
-
-  geometry_msgs::Point anchor;
-  anchor.x = msg->position.x;
-  anchor.y = msg->position.y;
-  anchor.z = msg->position.z;
-
-  range_data.push_back(Range(static_cast<float>(msg->range), msg->position.x, msg->position.y, msg->position.z));
-
-  geometry_msgs::Point uav;
-  uav.x = mean_p_.x;
-  uav.y = mean_p_.y;
-  uav.z = mean_p_.z;
-
-  rvizMarkerPublish(msg->source_id, static_cast<float>(msg->range), uav, anchor);
-
-  ROS_DEBUG("rangeCallback close");
-}*/
 
 bool Node::checkUpdateThresholds()
 {
@@ -632,7 +637,7 @@ bool Node::checkUpdateThresholds()
 
   if (ros::Time::now() < nextupdate_time_)
     return false;
-
+  //  odom increment between last amcl pose and current
   odom_increment_tf_ = lastupdatebase_2_odom_tf_.inverse() * base_2_odom_tf_;
 
   /* Check translation threshold */
@@ -654,8 +659,7 @@ bool Node::checkUpdateThresholds()
   return false;
 }
 
-void Node::setInitialPose(const tf::Transform& init_pose, const float x_dev, const float y_dev, const float z_dev,
-                          const float a_dev)
+void Node::setInitialPose(const tf::Transform& init_pose)
 {
   initodom_2_world_tf_ = init_pose;
 
@@ -666,9 +670,9 @@ void Node::setInitialPose(const tf::Transform& init_pose, const float x_dev, con
   const float z_init = t.z();
   const float a_init = static_cast<float>(getYawFromTf(init_pose));
 
-  pf_->init(parameters_.num_particles_, x_init, y_init, z_init, a_init, x_dev, y_dev, z_dev, a_dev);
+  mcl_->init(parameters_.num_particles_, x_init, y_init, z_init, a_init);
 
-  mean_p_ = pf_->getMean();
+  mean_p_ = mcl_->getMean();
   lastmean_p_ = mean_p_;
 
   /* Extract TFs for future updates */
@@ -687,53 +691,5 @@ double Node::getYawFromTf(const tf::Transform& tf)
   return yaw;
 }
 
-void Node::rvizMarkerPublish(const uint32_t anchor_id, const float r, const geometry_msgs::Point& uav,
-                             const geometry_msgs::Point& anchor)
-{
-  visualization_msgs::Marker marker;
-  marker.header.frame_id = parameters_.global_frame_id_;
-  marker.header.stamp = ros::Time::now();
-  marker.ns = "amcl3d";
-  marker.id = anchor_id;
-  marker.type = visualization_msgs::Marker::LINE_STRIP;
-  marker.action = visualization_msgs::Marker::ADD;
-  marker.scale.x = 0.1;
-  marker.scale.y = r;
-  marker.scale.z = r;
-  marker.color.a = 0.5;
-  if (amcl_out_) /* Indicate if AMCL was lost */
-  {
-    marker.color.r = 1.0;
-    marker.color.g = 1.0;
-    marker.color.b = 1.0;
-  }
-  else
-  {
-    switch (anchor_id)
-    {
-      case 1:
-        marker.color.r = 0.0;
-        marker.color.g = 1.0;
-        marker.color.b = 0.0;
-        break;
-      case 2:
-        marker.color.r = 1.0;
-        marker.color.g = 0.0;
-        marker.color.b = 0.0;
-        break;
-      case 3:
-        marker.color.r = 0.0;
-        marker.color.g = 0.0;
-        marker.color.b = 1.0;
-        break;
-    }
-  }
-  marker.points.clear();
-  marker.points.push_back(uav);
-  marker.points.push_back(anchor);
-
-  /* Publish marker */
-  range_markers_pub_.publish(marker);
-}
 
 }  // namespace amcl3d

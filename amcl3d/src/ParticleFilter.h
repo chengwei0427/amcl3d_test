@@ -22,12 +22,6 @@
 
 #include <random>
 
-#include <ros/ros.h>
-
-#include <geometry_msgs/Point32.h>
-#include <geometry_msgs/PoseArray.h>
-#include <geometry_msgs/PoseWithCovarianceStamped.h>
-
 #include <common/vs_common.h>
 #include <common/vs_timer.h>
 
@@ -43,27 +37,12 @@ struct Particle
   float a; /*!< Yaw angle */
 
   float w;  /*!< Total weight */
-  float wp; /*!< Weight by the 3d point cloud sensor */
-  float wr; /*!< Weight by the radio-range sensor*/
 
-  Particle() : x(0), y(0), z(0), a(0), w(0), wp(0), wr(0)
+  Particle() : x(0), y(0), z(0), a(0), w(0)
   {
   }
 };
 
-/*! \brief Struct that contains the data concerning one range measurement.
- */
-struct Range
-{
-  float r;  /*!< Range measurement */
-  float ax; /*!< Position x of the sensor in the environment */
-  float ay; /*!< Position y of the sensor in the environment */
-  float az; /*!< Position z of the sensor in the environment */
-
-  Range(const float r_, const float ax_, const float ay_, const float az_) : r(r_), ax(ax_), ay(ay_), az(az_)
-  {
-  }
-};
 
 /*! \brief Class that contains the stages of the Particle Filter.
  */
@@ -72,7 +51,7 @@ class ParticleFilter
 public:
   /*! \brief ParticleFilter class constructor.
    */
-  explicit ParticleFilter(VSCOMMON::LoggerPtr&);
+  explicit ParticleFilter(VSCOMMON::LoggerPtr&, Grid3d* grid3d_);
   /*! \brief ParticleFilter class destructor.
    */
   virtual ~ParticleFilter();
@@ -94,16 +73,15 @@ public:
    *
    * \return Particle - Particle struct.
    */
-  Particle getMean() const
-  {
-    return mean_;
-  }
+  Particle getMean();
+
+  Particle getBestParticle();
 
   /*! \brief To build the particles pose message.
    *
    * \param msg Type of message that it is wanted to build.
    */
-  void buildParticlesPoseMsg(geometry_msgs::PoseArray& msg) const;
+  //void buildParticlesPoseMsg(geometry_msgs::PoseArray& msg) const;
 
   /*! \brief This function implements the PF init stage.
    *
@@ -154,10 +132,10 @@ public:
    * particle according to the point cloud and the measurement of the radio sensors. Finally, it normalizes the weights
    * for all particles and finds the average for the composition of the UAV pose.
    */
-  void update(const Grid3d* grid3d, const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
-              const std::vector<Range>& range_data, const double alpha, const double sigma,
+  void update(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
               const double roll, const double pitch);
-  void update(const std::vector<Range>& range_data, const double alpha, const double sigma);
+
+  void particleNormalize();
 
   /*! \brief This function implements the PF resample stage.
    * Translation in X, Y and Z in meters and yaw angle incremenet in rad.
@@ -174,21 +152,13 @@ public:
    */
   void resample();
 
+  void uniformSample(int& sample_num);
+public:
+  std::vector<Particle> p_; /*!< Vector of particles */
+  Particle mean_;           /*!< Particle to show the mean of all the particles */
+  int global_init_num = 0;
+  Grid3d* grid3d_;         /*!< Instance of the Grid3d class */
 private:
-  /*! \brief To get the particle weight according to the radio-range sensor.
-   *
-   * \param x Position of the x-axis of the particle.
-   * \param y Position of the y-axis of the particle.
-   * \param z Position of the z-axis of the particle.
-   * \param range_data Information of the measurement radio-range sensor.
-   * \param sigma Desviation in the measurement of the radio-range sensor.
-   * \return <b>float</b> - The weight of the particle according to radio-range sensor.
-   *
-   * It compares the values that the sensors give respect to the value according to the particles. The difference
-   * between their gives differents weight for each particle.
-   */
-  float computeRangeWeight(const float x, const float y, const float z, const std::vector<Range>& range_data,
-                           const double sigma);
 
   /*! \brief To generate the random value by the Gaussian distribution.
    *
@@ -207,9 +177,6 @@ private:
   float rngUniform(const float range_from, const float range_to);
 
   bool initialized_{ false }; /*!< To indicate the initialition of the filter */
-
-  std::vector<Particle> p_; /*!< Vector of particles */
-  Particle mean_;           /*!< Particle to show the mean of all the particles */
 
   std::random_device rd_;  /*!< Random device */
   std::mt19937 generator_; /*!< Generator of random values */
