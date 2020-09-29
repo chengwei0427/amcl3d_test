@@ -1,37 +1,103 @@
 # amcl3d
 
-#### 介绍
-3d amcl location
+[![Build Status](https://travis-ci.org/fada-catec/amcl3d.svg?branch=master)](https://travis-ci.org/fada-catec/amcl3d)
+[![License](https://img.shields.io/badge/License-Apache%202-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![codecov](https://codecov.io/gh/fada-catec/amcl3d/branch/kinetic-test/graph/badge.svg)](https://codecov.io/gh/fada-catec/amcl3d)
 
-#### 软件架构
-软件架构说明
+### Overview
+
+This is a package is a **"Adaptive Monte-Carlo Localization in 3D"**.
+
+It is a particle filter that estimates the localization of a robot moving in a 3D environment without using GPS.
+
+It takes information from an odometry source, point-clouds from an onboard sensor (e.g. laser) and distance measurements from radio-range sensors.
+
+#### License
+
+Apache 2.0
+
+**Author: Paloma Carrasco Fern�ndez (pcarrasco@catec.aero),
+          Francisco Cuesta Rodr�guez (fcuesta@catec.aero),
+          Francisco J.Perez-Grau (fjperez@catec.aero)**
+
+**Affiliation: [FADA-CATEC](https://http://www.catec.aero//)**
+
+**Maintainer: Paloma Carrasco Fern�ndez (pcarrasco@catec.aero),
+              Francisco Cuesta Rodr�guez (fcuesta@catec.aero)**
+
+The amcl3d package has been tested under [ROS] Kinetic and Ubuntu 16.04.
+
+#### Publications
+
+If you want more information about the algorithm or use this work in your project, please check and cite the following publication:
+
+* Francisco J.Perez-Grau, Fernando Caballero, Antidio Viguria and Anibal Ollero:
+
+	**[Multi-sensor 3D Monte Carlo Localization (MCL) for long-term aerial robot navigation, 2017](https://journals.sagepub.com/doi/pdf/10.1177/1729881417732757)**
+
+#### Detailed Description
+
+To know in more detail the behavior of the package:
+
+* **[amcl3d (Wiki-ROS)](http://wiki.ros.org/amcl3d#preview)**
+
+### Demostration Video
+
+[![](http://img.youtube.com/vi/Dn6LxH-WLRA/0.jpg)](http://www.youtube.com/watch?v=Dn6LxH-WLRA "")
+
+### Installation
+
+#### Building from Source
+
+##### Building
+
+To build from source, clone the latest version from this repository into your catkin workspace and compile the package using
+
+     cd catkin_workspace/src
+     git clone https://github.com/fada-catec/amcl3d.git
+     cd ../
+     catkin build
+
+### Launch files
+
+* **amcl3d.launch:** it contains the start of amcl3d node with a standard configuration of parameters.
+
+          roslaunch amcl3d amcl3d.launch
+		  
+* **amcl3d_rosin.launch:**  it contains the initial pose, particle number, 'alpha' parameter, 'take_off_height' parameter and the correctly map to run the algorithm with the correcly data of the rosbag. 
+          
+		roslaunch amcl3d amcl3d_rosin.launch
+
+### Gmoke Tests
+
+This branch contains differents tests to evaluate the correct behaviour of the algorithm. To run these tests it is necessary to have the rosbag of the 'Version 1.1.0' release.
+
+     To compile:
+
+          catkin_make tests
+
+     To run:
+
+          rosrun amcl3d amcl3d_tests
 
 
-#### 安装教程
+### Doxygen
+The code has been commentes to offert the posibility to generate a Doxygen documentation. To generate it:
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+     rosdoc_lite /path/to/workspace/src/amcl3d/amcl3d
 
-#### 使用说明
+To install the rosdoc_lite package:
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+     apt-get install ros-kinetic-rosdoc_lite
+     
+### Bugs & Feature Requests
 
-#### 参与贡献
+Please report bugs and request features using the [Issue Tracker](https://github.com/fada-catec/amcl3d/issues).
 
-1.  Fork 本仓库
-2.  新建 Feat_xxx 分支
-3.  提交代码
-4.  新建 Pull Request
+### Acknowledgement
+
+![ROSIN](http://rosin-project.eu/wp-content/uploads/rosin_ack_logo_wide.png)
 
 
-#### 特技
-
-1.  使用 Readme\_XXX.md 来支持不同的语言，例如 Readme\_en.md, Readme\_zh.md
-2.  Gitee 官方博客 [blog.gitee.com](https://blog.gitee.com)
-3.  你可以 [https://gitee.com/explore](https://gitee.com/explore) 这个地址来了解 Gitee 上的优秀开源项目
-4.  [GVP](https://gitee.com/gvp) 全称是 Gitee 最有价值开源项目，是综合评定出的优秀开源项目
-5.  Gitee 官方提供的使用手册 [https://gitee.com/help](https://gitee.com/help)
-6.  Gitee 封面人物是一档用来展示 Gitee 会员风采的栏目 [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+Supported by ROSIN - ROS-Industrial Focused Technical Projects (FTP).  
+More information: [rosin-project.eu](http://rosin-project.eu)
