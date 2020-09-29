@@ -23,12 +23,12 @@ namespace amcl3d
 {
 /*! \brief Class that contains the global parameters of the algorithm.
  */
-class Parameters
+struct Parameters
 {
 public:
   /*! \brief Parameters class constructor.
    */
-  explicit Parameters();
+  //explicit Parameters();
 
   std::string base_frame_id_;   /*!< Name of the robot TF */
   std::string odom_frame_id_;   /*!< Name of the flight origin of the robot TF */

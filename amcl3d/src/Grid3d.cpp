@@ -23,6 +23,7 @@
 
 namespace amcl3d
 {
+  Grid3d::Grid3d(VSCOMMON::LoggerPtr& t_log):g_log(t_log){}
 /*bool Grid3d::open(const std::string& map_path, const double sensor_dev)
 {
   try
@@ -69,26 +70,27 @@ namespace amcl3d
   return true;
 }*/
 
-bool loadPCD(std::string file_path,pcl::PointCloud < pcl::PointXYZ>::Ptr& input)
+bool Grid3d::loadPCD(std::string file_path,pcl::PointCloud < pcl::PointXYZ>::Ptr& input)
 {
   #define PointType pcl::PointXYZI
   std::vector<pcl::PointCloud<PointType>::Ptr> corner_keyframes;
   std::vector<pcl::PointCloud<PointType>::Ptr>  surf_keyframes;
   std::vector<pcl::PointCloud<PointType>::Ptr>  outlier_keyframes;
   pcl::PointCloud<PointType>::Ptr  keyposes_3d;
-  // VSCOMMON::tic("loadpcd");
+
   pcl::PointCloud<PointType>::Ptr corner_pc(new pcl::PointCloud<PointType>());
   pcl::PointCloud<PointType>::Ptr surf_pc(new pcl::PointCloud<PointType>());
   pcl::PointCloud<PointType>::Ptr outlier_pc(new pcl::PointCloud<PointType>());
   keyposes_3d.reset(new pcl::PointCloud<PointType>());
-
+  VSCOMMON::tic("loadPCDFile");
   if (pcl::io::loadPCDFile(file_path+"keypose_b.pcd", *keyposes_3d) == -1 || pcl::io::loadPCDFile(file_path+"corner_b.pcd", *corner_pc) == -1
     || pcl::io::loadPCDFile(file_path+"surf_b.pcd", *surf_pc) == -1 || pcl::io::loadPCDFile(file_path+"outlier_b.pcd", *outlier_pc) == -1)
   {
     std::cout << "couldn't load pcd file." << std::endl;
     return false;
   }
-  std::cout<< __FUNCTION__<<" "<<__LINE__<<" load pcd file here."<< keyposes_3d->size()<<std::endl;
+  LOG_INFO(g_log, __FUNCTION__<<" "<<__LINE__<<" load pcd file here. keypose size: "
+    << keyposes_3d->size()<<" takes: "<< VSCOMMON::toc("loadPCDFile") * 1000 << " ms.");
   corner_keyframes.resize(keyposes_3d->points.size());
   surf_keyframes.resize(keyposes_3d->points.size());
   outlier_keyframes.resize(keyposes_3d->points.size());
@@ -137,31 +139,32 @@ bool loadPCD(std::string file_path,pcl::PointCloud < pcl::PointXYZ>::Ptr& input)
 
 bool Grid3d::open(const std::string& map_path, const double sensor_dev)
 {
+  using namespace VSCOMMON;
   try
   {
     pcl::PointCloud < pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud < pcl::PointXYZ>());
-    std::cout<<map_path<<std::endl;
+    VSCOMMON::tic("loadPCD");
     if(!loadPCD(map_path,cloud))
+    {
+      LOG_COUT_WARN(g_log,__FUNCTION__,"Can't load PCD from map_path: "<< map_path);
       return false;
+    }
+    LOG_COUT_INFO(g_log,"load pcd file successful,total take: "<< VSCOMMON::toc("loadPCD") * 1000 << " ms.");
     // auto octo_tree = openOcTree(map_path); // Load octomap 
 
-    ROS_INFO("[%s] Octomap loaded", ros::this_node::getName().data());
-
     //pc_info_ = computePointCloud(octo_tree); // Compute the point-cloud associated to the octomap 
+    VSCOMMON::tic("computePC");
     pc_info_ = computePointCloud(cloud,0.5);
-
-    ROS_INFO("[%s]"
-             "\n   Map size:"
-             "\n      X: %lf to %lf"
-             "\n      Y: %lf to %lf"
-             "\n      Z: %lf to %lf"
-             "\n      Res: %lf",
-             ros::this_node::getName().data(), pc_info_->octo_min_x, pc_info_->octo_max_x, pc_info_->octo_min_y,
-             pc_info_->octo_max_y, pc_info_->octo_min_z, pc_info_->octo_max_z, pc_info_->octo_resol);
+    double time_computePC = VSCOMMON::toc("loadPCD") * 1000;
+    LOG_COUT_INFO(g_log,
+             "Map size: X: "<<pc_info_->octo_min_x<<" to "<<pc_info_->octo_max_x
+             <<", Y: "<<pc_info_->octo_min_y<<" to "<<pc_info_->octo_max_y
+             <<", Z: "<<pc_info_->octo_min_z<<"to "<<pc_info_->octo_max_z
+             <<", Res: "<<pc_info_->octo_resol<<", computePointCloud takes: "<< time_computePC<<" ms.");
   }
   catch (std::exception& e)
   {
-    ROS_ERROR("[%s] %s", ros::this_node::getName().data(), e.what());
+    printf("[%s] %s", __FUNCTION__, e.what());
     return false;
   }
 
@@ -176,9 +179,10 @@ bool Grid3d::open(const std::string& map_path, const double sensor_dev)
     return true;
 
   // Compute the gridMap using kdtree search over the point-cloud 
-  ROS_INFO("[%s] Computing 3D occupancy grid. This will take some time...", ros::this_node::getName().data());
+  LOG_COUT_INFO(g_log,"Computing 3D occupancy grid. This will take some time...");
+  VSCOMMON::tic("computeGrid");
   grid_info_ = computeGrid(pc_info_, sensor_dev);
-  ROS_INFO("[%s] Computing 3D occupancy grid done!", ros::this_node::getName().data());
+  LOG_COUT_INFO(g_log,"Computing 3D occupancy grid done! computeGrid takes: "<< VSCOMMON::toc("computeGrid")*1000 <<" ms.");
 
   // Save grid on file 
   saveGrid(grid_path);
@@ -225,7 +229,7 @@ bool Grid3d::buildGridSliceMsg(const double z, nav_msgs::OccupancyGrid& msg) con
   msg.data.resize(end - init);
   for (uint32_t i = 0; i < msg.data.size(); ++i)
     msg.data[i] = static_cast<int8_t>(grid_ptr[init + i].prob * max_prob);
-    std::cout<< __FUNCTION__<<" "<<__LINE__<<" build grid slice msg successful "<<std::endl;
+    LOG_INFO(g_log,__FUNCTION__<<" "<<__LINE__<<" build grid slice msg successful. ");
   return true;
 }
 
@@ -235,7 +239,7 @@ bool Grid3d::buildMapPointCloudMsg(sensor_msgs::PointCloud2& msg) const
     return false;
 
   pcl::toROSMsg(*pc_info_->cloud, msg);
-std::cout<< __FUNCTION__<<" "<<__LINE__<<" build pointcloud msg successful "<<std::endl;
+  LOG_INFO(g_log, __FUNCTION__<<" "<<__LINE__<<" build pointcloud msg successful. ");
   return true;
 }
 
@@ -324,7 +328,8 @@ bool Grid3d::saveGrid(const std::string& grid_path)
   auto pf = fopen(grid_path.c_str(), "wb");
   if (!pf)
   {
-    ROS_ERROR("[%s] Error opening file %s for writing", ros::this_node::getName().data(), grid_path.c_str());
+    using namespace VSCOMMON;
+    LOG_COUT_WARN(g_log,__FUNCTION__,"Error opening file "<< grid_path<<" for writing");
     return false;
   }
 
@@ -339,8 +344,8 @@ bool Grid3d::saveGrid(const std::string& grid_path)
   fwrite(grid_info_->grid.data(), sizeof(Grid3dCell), grid_size, pf);
 
   fclose(pf);
-
-  ROS_INFO("[%s] Grid map successfully saved on %s", ros::this_node::getName().data(), grid_path.c_str());
+  using namespace VSCOMMON;
+  LOG_COUT_WARN(g_log,__FUNCTION__,"Grid map successfully saved on :"<< grid_path);
 
   return true;
 }
@@ -350,7 +355,8 @@ bool Grid3d::loadGrid(const std::string& grid_path, const double sensor_dev)
   auto pf = fopen(grid_path.c_str(), "rb");
   if (!pf)
   {
-    ROS_WARN("[%s] Error opening file %s for reading", ros::this_node::getName().data(), grid_path.c_str());
+    using namespace VSCOMMON;
+    LOG_COUT_WARN(g_log,__FUNCTION__,"Error opening file "<<grid_path <<" for reading");
     return false;
   }
 
@@ -364,7 +370,8 @@ bool Grid3d::loadGrid(const std::string& grid_path, const double sensor_dev)
 
   if (std::fabs(grid_info_->sensor_dev - sensor_dev) >= std::numeric_limits<double>::epsilon())
   {
-    ROS_WARN("[%s] Loaded sensorDev is different", ros::this_node::getName().data());
+    using namespace VSCOMMON;
+    LOG_COUT_WARN(g_log,__FUNCTION__,"Loaded sensorDev is different");
     return false;
   }
 
@@ -377,8 +384,8 @@ bool Grid3d::loadGrid(const std::string& grid_path, const double sensor_dev)
   fread(grid_info_->grid.data(), sizeof(Grid3dCell), grid_size, pf);
 
   fclose(pf);
-
-  ROS_INFO("[%s] Grid map successfully loaded from %s", ros::this_node::getName().data(), grid_path.c_str());
+  using namespace VSCOMMON;
+  LOG_COUT_INFO(g_log,"Grid map successfully loaded from :"<< grid_path);
 
   return true;
 }

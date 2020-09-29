@@ -19,7 +19,7 @@
 
 namespace amcl3d
 {
-ParticleFilter::ParticleFilter() : generator_(rd_())
+ParticleFilter::ParticleFilter(VSCOMMON::LoggerPtr& t_log) : generator_(rd_()),g_log(t_log)
 {
 }
 
@@ -118,14 +118,14 @@ void ParticleFilter::predict(const double odom_x_mod, const double odom_y_mod, c
   }
 }
 
-void ParticleFilter::update(const Grid3d& grid3d, const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
+void ParticleFilter::update(const Grid3d* grid3d, const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
                             const std::vector<Range>& range_data, const double alpha, const double sigma,
                             const double roll, const double pitch)
 {
   /*  Incorporate measurements */
   float wtp = 0, wtr = 0;
 
-  clock_t begin_for1 = clock();
+  VSCOMMON::tic("pf_update");
   for (uint32_t i = 0; i < p_.size(); ++i)
   {
     /*  Get particle information */
@@ -134,7 +134,7 @@ void ParticleFilter::update(const Grid3d& grid3d, const pcl::PointCloud<pcl::Poi
     float tz = p_[i].z;
 
     /*  Check the particle is into the map */
-    if (!grid3d.isIntoMap(tx, ty, tz))
+    if (!grid3d->isIntoMap(tx, ty, tz))
     {
       // std::cout << "Not into map: " << grid3d_.isIntoMap(tx, ty, tz-1.0) << std::endl;
       p_[i].w = 0;
@@ -142,7 +142,7 @@ void ParticleFilter::update(const Grid3d& grid3d, const pcl::PointCloud<pcl::Poi
     }
 
     /*  Evaluate the weight of the point cloud */
-    p_[i].wp = grid3d.computeCloudWeight(cloud, tx, ty, tz, roll, pitch, p_[i].a);
+    p_[i].wp = grid3d->computeCloudWeight(cloud, tx, ty, tz, roll, pitch, p_[i].a);
 
     /*  Evaluate the weight of the range sensors */
     p_[i].wr = computeRangeWeight(tx, ty, tz, range_data, sigma);
@@ -151,9 +151,7 @@ void ParticleFilter::update(const Grid3d& grid3d, const pcl::PointCloud<pcl::Poi
     wtp += p_[i].wp;
     wtr += p_[i].wr;
   }
-  clock_t end_for1 = clock();
-  double elapsed_secs = double(end_for1 - begin_for1) / CLOCKS_PER_SEC;
-  ROS_DEBUG("Update time 1: [%lf] sec", elapsed_secs);
+  LOG_INFO(g_log,"PF update time : "<<VSCOMMON::toc("pf_update")*1000<<" ms.");
 
   /*  Normalize all weights */
   float wt = 0;
@@ -169,7 +167,7 @@ void ParticleFilter::update(const Grid3d& grid3d, const pcl::PointCloud<pcl::Poi
     else
       p_[i].wr = 0;
 
-    if (!grid3d.isIntoMap(p_[i].x, p_[i].y, p_[i].z))
+    if (!grid3d->isIntoMap(p_[i].x, p_[i].y, p_[i].z))
     {
       /* std::cout << "Not into map: " << grid3d_.isIntoMap(tx, ty, tz-1.0) << std::endl; */
       p_[i].w = 0;

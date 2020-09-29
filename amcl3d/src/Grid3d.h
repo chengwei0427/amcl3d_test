@@ -27,6 +27,9 @@
 
 #include "PointCloudTools.h"
 
+#include <common/vs_common.h>
+#include <common/vs_timer.h>
+
 namespace amcl3d
 {
 /*! \brief Class that contains the stages of the grid construction.
@@ -36,9 +39,7 @@ class Grid3d
 public:
   /*! \brief Grid3d class constructor.
    */
-  explicit Grid3d()
-  {
-  }
+  explicit Grid3d(VSCOMMON::LoggerPtr&);
   /*! \brief Grid3d class destructor.
    */
   virtual ~Grid3d()
@@ -116,6 +117,8 @@ public:
    */
   bool isIntoMap(const float x, const float y, const float z) const;
 
+  bool loadPCD(std::string file_path,pcl::PointCloud < pcl::PointXYZ>::Ptr& input);
+
 private:
   /*! \brief To save the file of map like grid.
    *
@@ -156,6 +159,8 @@ private:
   PointCloudInfo::Ptr pc_info_; /*!< 3D point cloud representation of the map. */
 
   Grid3dInfo::Ptr grid_info_; /*!< 3D probabilistic grid cell */
+
+  VSCOMMON::LoggerPtr g_log;
 };
 
 }  // namespace amcl3d

@@ -29,8 +29,8 @@ int main(int argc, char** argv)
     ROS_ERROR("[%s] Roscore is not running.", ros::this_node::getName().data());
     return EXIT_FAILURE;
   }
-
-  amcl3d::Node node;
+  const std::string workingDir = "../catkin_ws/";
+  amcl3d::Node node(workingDir);
   node.spin();
 
   // ROS_INFO("[%s] Node finished.", ros::this_node::getName().data());

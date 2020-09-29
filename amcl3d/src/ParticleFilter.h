@@ -28,6 +28,9 @@
 #include <geometry_msgs/PoseArray.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 
+#include <common/vs_common.h>
+#include <common/vs_timer.h>
+
 namespace amcl3d
 {
 /*! \brief Struct that contains the data concerning one particle.
@@ -69,7 +72,7 @@ class ParticleFilter
 public:
   /*! \brief ParticleFilter class constructor.
    */
-  explicit ParticleFilter();
+  explicit ParticleFilter(VSCOMMON::LoggerPtr&);
   /*! \brief ParticleFilter class destructor.
    */
   virtual ~ParticleFilter();
@@ -151,7 +154,7 @@ public:
    * particle according to the point cloud and the measurement of the radio sensors. Finally, it normalizes the weights
    * for all particles and finds the average for the composition of the UAV pose.
    */
-  void update(const Grid3d& grid3d, const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
+  void update(const Grid3d* grid3d, const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
               const std::vector<Range>& range_data, const double alpha, const double sigma,
               const double roll, const double pitch);
   void update(const std::vector<Range>& range_data, const double alpha, const double sigma);
@@ -210,6 +213,8 @@ private:
 
   std::random_device rd_;  /*!< Random device */
   std::mt19937 generator_; /*!< Generator of random values */
+
+  VSCOMMON::LoggerPtr g_log;
 };
 
 }  // namespace amcl3d

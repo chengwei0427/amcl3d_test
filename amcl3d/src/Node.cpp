@@ -22,27 +22,38 @@
 #include <sensor_msgs/point_cloud2_iterator.h>
 #include <visualization_msgs/Marker.h>
 
+
+
 namespace amcl3d
 {
-Node::Node() : grid3d_(), pf_(), nh_(ros::this_node::getName())
+Node::Node(const std::string& str) : WORKING_DIR(str), nh_(ros::this_node::getName())
+,g_log(new VSCOMMON::Logger("MAIN")),loc_loop_(0),grid3d_(new Grid3d(g_log)), pf_(new ParticleFilter(g_log))
 {
-  ROS_DEBUG("[%s] Node::Node()", ros::this_node::getName().data());
+  using namespace VSCOMMON;
+  std::cout<<WORKING_DIR+"log"<<std::endl;
+  createDir(WORKING_DIR+"log");
+  createDir(WORKING_DIR+"log/amcl3d");
+  std::string logConfig = bin_dir + "params/log4cpp_amcl3d.conf";
+  readLog4cppConfigure(logConfig);
+  LOG_INFO(g_log, "TOOL_VERSION= " << TOOL_VERSION << " build:" << __DATE__ << " " << __TIME__ );
+  readParamFromXML();
+  LOG_INFO(g_log, "Node initialized successful.");
 }
 
 Node::~Node()
 {
-  ROS_DEBUG("[%s] Node::~Node()", ros::this_node::getName().data());
+  LOG_INFO(g_log, "Node::~Node()");
 }
 
 void Node::spin()
 {
-  ROS_DEBUG("[%s] Node::spin()", ros::this_node::getName().data());
+  LOG_INFO(g_log,"starting Node::spin()");
 
-  if (!grid3d_.open(parameters_.map_path_, parameters_.sensor_dev_))
+  if (!grid3d_->open(parameters_.map_path_, parameters_.sensor_dev_))
     return;
 
   if (parameters_.publish_grid_slice_rate_ != 0 &&
-      grid3d_.buildGridSliceMsg(parameters_.grid_slice_z_, grid_slice_msg_))
+      grid3d_->buildGridSliceMsg(parameters_.grid_slice_z_, grid_slice_msg_))
   {
     grid_slice_msg_.header.frame_id = parameters_.global_frame_id_;
     grid_slice_pub_ = nh_.advertise<nav_msgs::OccupancyGrid>("grid_slice", 1, true);
@@ -50,7 +61,7 @@ void Node::spin()
         nh_.createTimer(ros::Duration(ros::Rate(parameters_.publish_grid_slice_rate_)), &Node::publishGridSlice, this);
   }
 
-  if (parameters_.publish_point_cloud_rate_ != 0 && grid3d_.buildMapPointCloudMsg(map_point_cloud_msg_))
+  if (parameters_.publish_point_cloud_rate_ != 0 && grid3d_->buildMapPointCloudMsg(map_point_cloud_msg_))
   {
     map_point_cloud_msg_.header.frame_id = parameters_.global_frame_id_;
     map_point_cloud_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("map_point_cloud", 1, true);
@@ -81,9 +92,111 @@ void Node::spin()
   nh_.shutdown();
 }
 
+void Node::readParamFromXML()
+{
+  using namespace std;
+  using namespace VSCOMMON;
+  std::string base_frame_id;
+  std::string odom_frame_id;
+  std::string global_frame_id;
+  std::string map_path; 
+  bool set_initial_pose;
+  double init_x;
+  double init_y; 
+  double init_z;
+  double init_a;
+
+  double init_x_dev,init_y_dev,init_z_dev,init_a_dev;
+
+  double grid_slice_z;
+  double publish_point_cloud_rate;
+  double publish_grid_slice_rate;
+
+  double sensor_dev;
+  double sensor_range;
+  double voxel_size;
+
+  double num_particles;
+
+  double odom_x_mod,odom_y_mod,odom_z_mod,odom_a_mod;
+
+  int resample_interval;
+
+  double update_rate;
+  double d_th;
+  double a_th;
+  double take_off_height;
+  double alpha;
+
+  LOAD_PARAM_FROM_XML(path_param.c_str());
+  DECLARE_PARAM_READER_BEGIN(AMCL3D)
+  READ_PARAM(base_frame_id)
+  READ_PARAM(odom_frame_id)
+  READ_PARAM(global_frame_id)
+  READ_PARAM(map_path)
+  READ_PARAM(set_initial_pose)
+  READ_PARAM(init_x)
+  READ_PARAM(init_y)
+  READ_PARAM(init_z)
+  READ_PARAM(init_a)
+  READ_PARAM(init_x_dev)
+  READ_PARAM(init_y_dev)
+  READ_PARAM(init_z_dev)
+  READ_PARAM(init_a_dev)
+  READ_PARAM(grid_slice_z)
+  READ_PARAM(publish_point_cloud_rate)
+  READ_PARAM(publish_grid_slice_rate)
+  READ_PARAM(sensor_dev)
+  READ_PARAM(sensor_range)
+  READ_PARAM(voxel_size)
+  READ_PARAM(num_particles)
+  READ_PARAM(odom_x_mod)
+  READ_PARAM(odom_y_mod)
+  READ_PARAM(odom_z_mod)
+  READ_PARAM(odom_a_mod)
+  READ_PARAM(resample_interval)
+  READ_PARAM(update_rate)
+  READ_PARAM(d_th)
+  READ_PARAM(a_th)
+  READ_PARAM(take_off_height)
+  READ_PARAM(alpha)
+    DECLARE_PARAM_READER_END
+
+  parameters_.base_frame_id_ = base_frame_id;
+  parameters_.odom_frame_id_ = odom_frame_id;
+  parameters_.global_frame_id_ = global_frame_id;
+  parameters_.map_path_ = map_path;
+  parameters_.set_initial_pose_ = set_initial_pose;
+  parameters_.init_x_ = init_x;
+  parameters_.init_y_ = init_y;
+  parameters_.init_z_ = init_z;
+  parameters_.init_a_ = init_a;
+  parameters_.init_x_dev_ = init_x_dev;
+  parameters_.init_y_dev_ = init_y_dev;
+  parameters_.init_z_dev_ = init_z_dev;
+  parameters_.init_a_dev_ = init_a_dev;
+  parameters_.grid_slice_z_ = grid_slice_z;
+  parameters_.publish_point_cloud_rate_ = publish_point_cloud_rate;
+  parameters_.publish_grid_slice_rate_ = publish_grid_slice_rate;
+  parameters_.sensor_dev_ = sensor_dev;
+  parameters_.sensor_range_ = sensor_range;
+  parameters_.voxel_size_ = voxel_size;
+  parameters_.num_particles_ = num_particles;
+  parameters_.odom_x_mod_ = odom_x_mod;
+  parameters_.odom_y_mod_ = odom_y_mod;
+  parameters_.odom_z_mod_ = odom_z_mod;
+  parameters_.odom_a_mod_ = odom_a_mod;
+  parameters_.resample_interval_ = resample_interval;
+  parameters_.update_rate_ = update_rate;
+  parameters_.d_th_ = d_th;
+  parameters_.a_th_ = a_th;
+  parameters_.take_off_height_ = take_off_height;
+  parameters_.alpha_ = alpha;
+}
+
 void Node::publishMapPointCloud(const ros::TimerEvent&)
 {
-  ROS_DEBUG("[%s] Node::publishMapPointCloud()", ros::this_node::getName().data());
+  //LOG_INFO(g_log,__FUNCTION__<<" Node::publishMapPointCloud()");
 
   map_point_cloud_msg_.header.stamp = ros::Time::now();
   map_point_cloud_pub_.publish(map_point_cloud_msg_);
@@ -91,7 +204,7 @@ void Node::publishMapPointCloud(const ros::TimerEvent&)
 
 void Node::publishGridSlice(const ros::TimerEvent&)
 {
-  ROS_DEBUG("[%s] Node::publishGridSlice()", ros::this_node::getName().data());
+  //LOG_INFO(g_log,__FUNCTION__<<" Node::publishGridSlice()");
 
   grid_slice_msg_.header.stamp = ros::Time::now();
   grid_slice_pub_.publish(grid_slice_msg_);
@@ -100,12 +213,12 @@ void Node::publishGridSlice(const ros::TimerEvent&)
 void Node::publishParticles()
 {
   /* If the filter is not initialized then exit */
-  if (!pf_.isInitialized())
+  if (!pf_->isInitialized())
     return;
 
   /* Build the msg based on the particles position and orientation */
   geometry_msgs::PoseArray msg;
-  pf_.buildParticlesPoseMsg(msg);
+  pf_->buildParticlesPoseMsg(msg);
   msg.header.stamp = ros::Time::now();
   msg.header.frame_id = parameters_.global_frame_id_;
 
@@ -125,23 +238,24 @@ void Node::publishPoseTransfrom(ros::Time& stamp)
 
 void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
 {
-  ROS_DEBUG("pointcloudCallback open");
+  //LOG_INFO(g_log,"pointcloudCallback open");
 
   if (!is_odom_)
   {
-    ROS_WARN("Odometry transform not received");
+    using namespace VSCOMMON;
+    LOG_COUT_WARN(g_log,__FUNCTION__,"Odometry transform not received");
     return;
   }
 
   /* Check if an update must be performed or not */
   if (!checkUpdateThresholds())
     return;
-
+  LOG_INFO(g_log,"Begin process frame. loop:" << loc_loop_++);
   static const ros::Duration update_interval(1.0 / parameters_.update_rate_);
   nextupdate_time_ = ros::Time::now() + update_interval;
 
   /* Apply voxel grid */
-  clock_t begin_filter = clock();
+  VSCOMMON::tic("Filter");
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_src(new pcl::PointCloud<pcl::PointXYZ>);
   pcl::fromROSMsg(*msg, *cloud_src);
   pcl::VoxelGrid<pcl::PointXYZ> sor;
@@ -153,9 +267,7 @@ void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
   sensor_msgs::PointCloud2 cloud_down_msg;
   pcl::toROSMsg(*cloud_down, cloud_down_msg);
   cloud_filter_pub_.publish(cloud_down_msg);
-  clock_t end_filter = clock();
-  double elapsed_secs = double(end_filter - begin_filter) / CLOCKS_PER_SEC;
-  ROS_DEBUG("Filter time: [%lf] sec", elapsed_secs);
+  LOG_INFO(g_log,"Filter time:"<<VSCOMMON::toc("Filter") * 1000<<" ms");
 
   /* Perform particle prediction based on odometry */
   odom_increment_tf_ = lastupdatebase_2_odom_tf_.inverse() * base_2_odom_tf_;
@@ -164,21 +276,17 @@ void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
   const double delta_z = odom_increment_tf_.getOrigin().getZ();
   const double delta_a = getYawFromTf(odom_increment_tf_);
 
-  clock_t begin_predict = clock();
-  pf_.predict(parameters_.odom_x_mod_, parameters_.odom_y_mod_, parameters_.odom_z_mod_, parameters_.odom_a_mod_,
+  VSCOMMON::tic("Predict");
+  pf_->predict(parameters_.odom_x_mod_, parameters_.odom_y_mod_, parameters_.odom_z_mod_, parameters_.odom_a_mod_,
               delta_x, delta_y, delta_z, delta_a);
-  clock_t end_predict = clock();
-  elapsed_secs = double(end_predict - begin_predict) / CLOCKS_PER_SEC;
-  ROS_DEBUG("Predict time: [%lf] sec", elapsed_secs);
+  LOG_INFO(g_log,"Predict time:"<<VSCOMMON::toc("Predict") * 1000<<" ms");
 
   /* Perform particle update based on current point-cloud */
-  clock_t begin_update = clock();
-  pf_.update(grid3d_, cloud_down, range_data, parameters_.alpha_, parameters_.sensor_range_, roll_, pitch_);
-  clock_t end_update = clock();
-  elapsed_secs = double(end_update - begin_update) / CLOCKS_PER_SEC;
-  ROS_DEBUG("Update time: [%lf] sec", elapsed_secs);
+  VSCOMMON::tic("Update");
+  pf_->update(grid3d_, cloud_down, range_data, parameters_.alpha_, parameters_.sensor_range_, roll_, pitch_);
+  LOG_INFO(g_log,"Update time:"<<VSCOMMON::toc("Update") * 1000<<" ms");
 
-  mean_p_ = pf_.getMean();
+  mean_p_ = pf_->getMean();
   ros::Time pf_stamp = msg->header.stamp;
   // publishPoseTransfrom(pf_stamp);
   /* Clean the range buffer */
@@ -188,21 +296,19 @@ void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
   lastupdatebase_2_odom_tf_ = base_2_odom_tf_;
 
   /* Do the resampling if needed */
-  clock_t begin_resample = clock();
+  VSCOMMON::tic("Resample");
   static int n_updates = 0;
   if (++n_updates > parameters_.resample_interval_)
   {
     n_updates = 0;
-    pf_.resample();
+    pf_->resample();
   }
-  clock_t end_resample = clock();
-  elapsed_secs = double(end_resample - begin_resample) / CLOCKS_PER_SEC;
-  ROS_DEBUG("Resample time: [%lf] sec", elapsed_secs);
+  LOG_INFO(g_log,"Resample time:"<<VSCOMMON::toc("Update") * 1000<<" ms");
 
   /* Publish particles */
   publishParticles();
 
-  ROS_DEBUG("pointcloudCallback close");
+  //LOG_INFO(g_log,"pointcloudCallback close");
 }
 
 /*void Node::odomCallback(const geometry_msgs::TransformStampedConstPtr& msg)
@@ -340,7 +446,7 @@ void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
 
 void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
 {
-  ROS_DEBUG("odomCallback open");
+  //LOG_INFO(g_log,"odomCallback open");
 
   base_2_odom_tf_.setOrigin(
       tf::Vector3(msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z));
@@ -348,15 +454,17 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
                                              msg->pose.pose.orientation.z, msg->pose.pose.orientation.w));
 
   /* If the filter is not initialized then exit */
-  if (!pf_.isInitialized())
+  if (!pf_->isInitialized())
   {
-    ROS_WARN("Filter not initialized yet, waiting for initial pose.");
+    using namespace VSCOMMON;
+    LOG_COUT_WARN(g_log,__FUNCTION__,"Filter not initialized yet, waiting for initial pose.");
     if (parameters_.set_initial_pose_)
     {
       tf::Transform init_pose;
       init_pose.setOrigin(tf::Vector3(parameters_.init_x_, parameters_.init_y_, parameters_.init_z_));
       init_pose.setRotation(tf::Quaternion(0.0, 0.0, sin(parameters_.init_a_ * 0.5), cos(parameters_.init_a_ * 0.5)));
-      std::cout<<__FUNCTION__<<" "<<__LINE__<<" : set initial pose here."<<std::endl;
+
+      LOG_COUT_INFO(g_log,__FUNCTION__<<" "<<__LINE__<<" : set initial pose here.");
       setInitialPose(init_pose, parameters_.init_x_dev_, parameters_.init_y_dev_, parameters_.init_z_dev_,
                      parameters_.init_a_dev_);
     }
@@ -382,7 +490,8 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
   static bool has_takenoff = false;
   if (!has_takenoff)
   {
-    ROS_WARN("Not <<taken off>> yet");
+    using namespace VSCOMMON;
+    LOG_COUT_WARN(g_log,__FUNCTION__,"Not <<taken off>> yet");
 
     /* Check takeoff height */
     has_takenoff = base_2_odom_tf_.getOrigin().getZ() > parameters_.take_off_height_;
@@ -397,34 +506,40 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
     /* Check if AMCL went wrong (nan, inf) */
     if (std::isnan(mean_p_.x) || std::isnan(mean_p_.y) || std::isnan(mean_p_.z) || std::isnan(mean_p_.a))
     {
-      ROS_WARN("AMCL NaN detected");
+      using namespace VSCOMMON;
+      LOG_COUT_WARN(g_log,__FUNCTION__,"AMCL NaN detected");
       amcl_out_ = true;
     }
     if (std::isinf(mean_p_.x) || std::isinf(mean_p_.y) || std::isinf(mean_p_.z) || std::isinf(mean_p_.a))
     {
-      ROS_WARN("AMCL Inf detected");
+      using namespace VSCOMMON;
+      LOG_COUT_WARN(g_log,__FUNCTION__,"AMCL Inf detected");
       amcl_out_ = true;
     }
 
     /* Check jumps */
     if (fabs(mean_p_.x - lastmean_p_.x) > 1.)
     {
-      ROS_WARN("AMCL Jump detected in X");
+      using namespace VSCOMMON;
+      LOG_COUT_WARN(g_log,__FUNCTION__,"AMCL Jump detected in X");
       amcl_out_ = true;
     }
     if (fabs(mean_p_.y - lastmean_p_.y) > 1.)
     {
-      ROS_WARN("AMCL Jump detected in Y");
+      using namespace VSCOMMON;
+      LOG_COUT_WARN(g_log,__FUNCTION__,"AMCL Jump detected in Y");
       amcl_out_ = true;
     }
     if (fabs(mean_p_.z - lastmean_p_.z) > 1.)
     {
-      ROS_WARN("AMCL Jump detected in Z");
+      using namespace VSCOMMON;
+      LOG_COUT_WARN(g_log,__FUNCTION__,"AMCL Jump detected in Z");
       amcl_out_ = true;
     }
     if (fabs(mean_p_.a - lastmean_p_.a) > 1.)
     {
-      ROS_WARN("AMCL Jump detected in Yaw");
+      using namespace VSCOMMON;
+      LOG_COUT_WARN(g_log,__FUNCTION__,"AMCL Jump detected in Yaw");
       amcl_out_ = true;
     }
 
@@ -469,7 +584,7 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
   tf_br.sendTransform(tf::StampedTransform(lastodom_2_world_tf_, ros::Time::now(), parameters_.global_frame_id_,
                                            parameters_.odom_frame_id_));
 
-  ROS_DEBUG("odomCallback close");
+  //LOG_INFO(g_log,"odomCallback close");
 }
 
 void Node::initialPoseCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr& msg)
@@ -478,7 +593,8 @@ void Node::initialPoseCallback(const geometry_msgs::PoseWithCovarianceStampedCon
       init_pose.setOrigin(tf::Vector3(msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z));
       init_pose.setRotation(tf::Quaternion(msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
        msg->pose.pose.orientation.z, msg->pose.pose.orientation.w));
-      std::cout<<__FUNCTION__<<" "<<__LINE__<<" : get input initial pose here."<<std::endl;
+      using namespace VSCOMMON;
+      LOG_COUT_INFO(g_log,__FUNCTION__<<" "<<__LINE__<<" : get input initial pose here.");
       setInitialPose(init_pose, parameters_.init_x_dev_, parameters_.init_y_dev_, parameters_.init_z_dev_,
                      parameters_.init_a_dev_);
 }
@@ -506,7 +622,13 @@ void Node::initialPoseCallback(const geometry_msgs::PoseWithCovarianceStampedCon
 
 bool Node::checkUpdateThresholds()
 {
-  ROS_DEBUG("Checking for AMCL3D update");
+  // LOG_INFO(g_log,"Checking for AMCL3D update");
+  static bool b_check_first = true;
+  if(b_check_first)
+    {
+      b_check_first = false;
+      return true;
+    }
 
   if (ros::Time::now() < nextupdate_time_)
     return false;
@@ -544,9 +666,9 @@ void Node::setInitialPose(const tf::Transform& init_pose, const float x_dev, con
   const float z_init = t.z();
   const float a_init = static_cast<float>(getYawFromTf(init_pose));
 
-  pf_.init(parameters_.num_particles_, x_init, y_init, z_init, a_init, x_dev, y_dev, z_dev, a_dev);
+  pf_->init(parameters_.num_particles_, x_init, y_init, z_init, a_init, x_dev, y_dev, z_dev, a_dev);
 
-  mean_p_ = pf_.getMean();
+  mean_p_ = pf_->getMean();
   lastmean_p_ = mean_p_;
 
   /* Extract TFs for future updates */

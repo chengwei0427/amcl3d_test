@@ -24,6 +24,12 @@
 #include <tf/transform_broadcaster.h>
 #include <nav_msgs/Odometry.h>
 
+#include <common/vs_common.h>
+#include <common/vs_utils.h>
+#include <common/vs_timer.h>
+#include <io/vs_param_reader.h>
+
+#define TOOL_VERSION ("amcl3d")
 /*! \brief Namespace of the algorithm.
  */
 namespace amcl3d
@@ -37,7 +43,7 @@ class Node
 public:
   /*! \brief Node class constructor.
    */
-  explicit Node();
+  explicit Node(const std::string& str = "./");
   /*! \brief Node class destructor.
    */
   virtual ~Node();
@@ -51,6 +57,8 @@ public:
    * sensor, the algorithm result (tranformation) and the pointcloud filtered for the algorithm.
    */
   void spin();
+
+  void readParamFromXML();
 
 private:
   /*! \brief To publish the environment map point cloud.
@@ -162,9 +170,15 @@ private:
   void rvizMarkerPublish(const uint32_t anchor_id, const float r, const geometry_msgs::Point& uav,
                          const geometry_msgs::Point& anchor);
 
+  std::string WORKING_DIR = "./";
+  std::string bin_dir = WORKING_DIR;
+  std::string path_param = WORKING_DIR + "params/config/amcl3d_param.xml";
+  VSCOMMON::LoggerPtr g_log;
+  int loc_loop_; /*process pointcloud loop num*/
+
   Parameters parameters_; /*!< Instance of the Parameters class */
-  Grid3d grid3d_;         /*!< Instance of the Grid3d class */
-  ParticleFilter pf_;     /*!< Instance of the ParticleFilter class */
+  Grid3d* grid3d_;         /*!< Instance of the Grid3d class */
+  ParticleFilter* pf_;     /*!< Instance of the ParticleFilter class */
 
   ros::NodeHandle nh_; /*!< ROS Node Handle */
 
