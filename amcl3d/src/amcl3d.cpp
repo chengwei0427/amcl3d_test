@@ -32,18 +32,22 @@ namespace amcl3d
   {
   }
 
-  void MonteCarloLocalization::init(const int num_particles, const float x_init, 
-    const float y_init, const float z_init, const float a_init)
+  void MonteCarloLocalization::init(const int num_particles, 
+    const float x_init,const float y_init, const float z_init, 
+    const float roll_init, const float pitch_init,const float yaw_init)
   {
-      ParticleFilter::init(num_particles, x_init, y_init, z_init, a_init,localization_params_.init_x_dev_
-        ,localization_params_.init_y_dev_,localization_params_.init_z_dev_,localization_params_.init_a_dev_);
+      ParticleFilter::init(num_particles, x_init, y_init, z_init, roll_init,pitch_init,yaw_init,
+        localization_params_.init_x_dev_,localization_params_.init_y_dev_,localization_params_.init_z_dev_,
+        localization_params_.init_roll_dev_,localization_params_.init_pitch_dev_,localization_params_.init_yaw_dev_);
   }
 
-  void MonteCarloLocalization::PFMove(const double delta_x, const double delta_y, const double delta_z, const double delta_a)
+  void MonteCarloLocalization::PFMove(const double delta_x, const double delta_y, const double delta_z, 
+    const double delta_roll, const double delta_pitch, const double delta_yaw)
   {
     ParticleFilter::predict(localization_params_.odom_x_mod_,localization_params_.odom_y_mod_
-      ,localization_params_.odom_z_mod_,localization_params_.odom_a_mod_,delta_x
-      ,delta_y,delta_z,delta_a);
+      ,localization_params_.odom_z_mod_,localization_params_.odom_roll_mod_,
+      localization_params_.odom_pitch_mod_,localization_params_.odom_yaw_mod_,
+      delta_x,delta_y,delta_z,delta_roll,delta_pitch,delta_yaw);
   }
 
   void MonteCarloLocalization::PFResample()
@@ -123,7 +127,7 @@ namespace amcl3d
       int x = (_p.x - xmin)/xyz_step;
       int y = (_p.y - ymin)/xyz_step;
       int z = (_p.z - zmin)/xyz_step;
-      int t = (_p.a - (-M_PI))/theta_step;
+      int t = (_p.yaw - (-M_PI))/theta_step;
       if(x>=0 && x < xwidth && y>=0 && y < ywidth && z >= 0 && z < zwidth && t >=0 && y < theta)
         grid[x][y][z][t]++;
       else

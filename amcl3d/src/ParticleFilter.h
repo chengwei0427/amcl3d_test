@@ -34,13 +34,61 @@ struct Particle
   float x; /*!< Position x */
   float y; /*!< Position y */
   float z; /*!< Position z */
-  float a; /*!< Yaw angle */
+  float roll;
+  float pitch;
+  float yaw; /*!< Yaw angle */
 
   float w;  /*!< Total weight */
 
-  Particle() : x(0), y(0), z(0), a(0), w(0)
+  Particle() : x(0), y(0), z(0),roll(0),pitch(0), yaw(0), w(0)
   {
   }
+};
+
+struct LocalizationParam{
+  LocalizationParam()
+    :min_particle_num(50)
+    ,max_particle_num_local(200)
+    ,max_particle_num_global(600)
+    ,init_x_dev_(0.5)
+    ,init_y_dev_(0.5)
+    ,init_z_dev_(0.4)
+    ,init_roll_dev_(0.2)
+    ,init_pitch_dev_(0,2)
+    ,init_yaw_dev_(0.4)
+    ,odom_x_mod_(0.4)
+    ,odom_y_mod_(0.4)
+    ,odom_z_mod_(0.05)
+    ,odom_roll_mod_(0.05)
+    ,odom_pitch_mod_(0.05)
+    ,odom_yaw_mod_(0.2)
+    ,min_xy_noise_(0.1)
+    ,min_z_noise_(0.05)
+    ,min_rp_noise_(0.05)
+    ,min_yaw_noise_(0.05)
+    {}
+
+  int min_particle_num;
+  int max_particle_num_global;
+  int max_particle_num_local;
+  double init_x_dev_; /*!< Thresholds x-axis position in initialization*/
+  double init_y_dev_; /*!< Thresholds y-axis position in initialization*/
+  double init_z_dev_; /*!< Thresholds z-axis position in initialization*/
+  double init_roll_dev_;
+  double init_pitch_dev_;
+  double init_yaw_dev_; /*!< Thresholds yaw angle in initialization*/
+
+  double odom_x_mod_; /*!< Thresholds x-axis position in the prediction */
+  double odom_y_mod_; /*!< Thresholds y-axis position in the prediction */
+  double odom_z_mod_; /*!< Thresholds z-axis position in the prediction */
+  double odom_roll_mod_;
+  double odom_pitch_mod_;
+  double odom_yaw_mod_; /*!< Thresholds yaw angle in the prediction */
+
+  double min_xy_noise_;
+  double min_z_noise_;
+  double min_rp_noise_;
+  double min_yaw_noise_;
 };
 
 
@@ -99,8 +147,10 @@ public:
    * it using a Gaussian distribution and the deviation introduced. Subsequently, it calculates what would be the
    * average particle that would simulate the estimated position of the UAV.
    */
-  void init(const int num_particles, const float x_init, const float y_init, const float z_init, const float a_init,
-            const float x_dev, const float y_dev, const float z_dev, const float a_dev);
+  void init(const int num_particles, const float x_init, const float y_init, const float z_init, 
+            const float roll_init, const float pitch_init, const float yaw_init,
+            const float x_dev, const float y_dev, const float z_dev, 
+            const float roll_dev, const float pitch_dev, const float yaw_dev);
 
   /*! \brief This function implements the PF prediction stage.
    * (Translation in X, Y and Z in meters and yaw angle incremenet in rad.)
@@ -117,8 +167,10 @@ public:
    * It calculates the increase that has occurred in the odometry and makes predictions of where it is possible that the
    * UAV is, taking into account selected thresholds.
    */
-  void predict(const double odom_x_mod, const double odom_y_mod, const double odom_z_mod, const double odom_a_mod,
-               const double delta_x, const double delta_y, const double delta_z, const double delta_a);
+  void predict(const double odom_x_mod, const double odom_y_mod, const double odom_z_mod,
+                             const double odom_roll_mod, const double odom_pitch_mod,const double odom_yaw_mod,
+                             const double delta_x, const double delta_y, const double delta_z,
+                             const double delta_roll,const double delta_pitch,const double delta_yaw);
 
   /*! \brief This function implements the PF update stage.
    *
@@ -132,8 +184,7 @@ public:
    * particle according to the point cloud and the measurement of the radio sensors. Finally, it normalizes the weights
    * for all particles and finds the average for the composition of the UAV pose.
    */
-  void update(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
-              const double roll, const double pitch);
+  void update(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud);
 
   void particleNormalize();
 
@@ -158,6 +209,8 @@ public:
   Particle mean_;           /*!< Particle to show the mean of all the particles */
   int global_init_num = 0;
   Grid3d* grid3d_;         /*!< Instance of the Grid3d class */
+
+  LocalizationParam localization_params_;
 private:
 
   /*! \brief To generate the random value by the Gaussian distribution.

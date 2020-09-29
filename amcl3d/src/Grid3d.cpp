@@ -251,13 +251,14 @@ float Grid3d::computeCloudWeight(const pcl::PointCloud<pcl::PointXYZ>::Ptr& clou
         if(grid_index < grid_size)
         {
           weight += grid_ptr[grid_index].prob;
-          n += 1;
+          n += 1; 
         }
       }
     }
   }
 
-  return (n <= 10) ? 0 : weight / n;
+  return (n < 10)?0:weight/cloud->size();
+  //return (n <= 10) ? 0 : weight / n;  // change here
 }
 
 bool Grid3d::isIntoMap(const float x, const float y, const float z) const

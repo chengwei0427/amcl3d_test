@@ -22,36 +22,6 @@
 namespace amcl3d
 {
 
-struct LocalizationParam{
-  LocalizationParam()
-    :min_particle_num(50)
-    ,max_particle_num_local(200)
-    ,max_particle_num_global(600)
-    ,init_x_dev_(0.5)
-    ,init_y_dev_(0.5)
-    ,init_z_dev_(0.4)
-    ,init_a_dev_(0.4)
-    ,odom_x_mod_(0.4)
-    ,odom_y_mod_(0.4)
-    ,odom_z_mod_(0.05)
-    ,odom_a_mod_(0.2)
-    {}
-
-  int min_particle_num;
-  int max_particle_num_global;
-  int max_particle_num_local;
-  double init_x_dev_; /*!< Thresholds x-axis position in initialization*/
-  double init_y_dev_; /*!< Thresholds y-axis position in initialization*/
-  double init_z_dev_; /*!< Thresholds z-axis position in initialization*/
-  double init_a_dev_; /*!< Thresholds yaw angle in initialization*/
-
-  double odom_x_mod_; /*!< Thresholds x-axis position in the prediction */
-  double odom_y_mod_; /*!< Thresholds y-axis position in the prediction */
-  double odom_z_mod_; /*!< Thresholds z-axis position in the prediction */
-  double odom_a_mod_; /*!< Thresholds yaw angle in the prediction */
-
-};
-
 /*! \brief Class that contains the stages of the Particle Filter.
  */
 class MonteCarloLocalization : public ParticleFilter
@@ -76,9 +46,11 @@ public:
   {
     return initialized_;
   }*/
-  void init(const int num_particles, const float x_init, const float y_init, const float z_init, const float a_init);
+  void init(const int num_particles, const float x_init, const float y_init, const float z_init, 
+    const float roll_init, const float pitch_init,const float yaw_init);
   
-  void PFMove(const double delta_x, const double delta_y, const double delta_z, const double delta_a);
+  void PFMove(const double delta_x, const double delta_y, const double delta_z, 
+    const double delta_roll, const double delta_pitch, const double delta_yaw);
 
   void PFResample();
 
@@ -98,13 +70,11 @@ private:
 
   void setParticleWeight();
 
-  int computeSampleNum(const int cnt_per_grid = 9);
+  int computeSampleNum(const int cnt_per_grid = 4);
 
 
   enum{GLOBAL_LOC, LASER_ODOM, POSE_TRACKING, BLIND_TRACKING};
   int cur_loc_status_;
-
-  LocalizationParam localization_params_;
 
   int max_sample_num;
   int loc_loop_; /*process pointcloud loop num*/

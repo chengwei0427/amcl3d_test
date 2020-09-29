@@ -100,9 +100,12 @@ void Node::readParamFromXML()
   double init_x;
   double init_y; 
   double init_z;
-  double init_a;
+  double init_roll;
+  double init_pitch;
+  double init_yaw;
 
-  double init_x_dev,init_y_dev,init_z_dev,init_a_dev;
+  double init_x_dev,init_y_dev,init_z_dev;
+  double init_roll_dev,init_pitch_dev,init_yaw_dev;
 
   double grid_slice_z;
   double publish_point_cloud_rate;
@@ -113,7 +116,10 @@ void Node::readParamFromXML()
 
   double num_particles;
 
-  double odom_x_mod,odom_y_mod,odom_z_mod,odom_a_mod;
+  double odom_x_mod,odom_y_mod,odom_z_mod;
+  double odom_roll_mod,odom_pitch_mod,odom_yaw_mod;
+
+  double min_xy_noise,min_z_noise,min_rp_noise,min_yaw_noise;
 
   int resample_interval;
 
@@ -136,11 +142,15 @@ void Node::readParamFromXML()
   READ_PARAM(init_x)
   READ_PARAM(init_y)
   READ_PARAM(init_z)
-  READ_PARAM(init_a)
+  READ_PARAM(init_roll)
+  READ_PARAM(init_pitch)
+  READ_PARAM(init_yaw)
   READ_PARAM(init_x_dev)
   READ_PARAM(init_y_dev)
   READ_PARAM(init_z_dev)
-  READ_PARAM(init_a_dev)
+  READ_PARAM(init_roll_dev)
+  READ_PARAM(init_pitch_dev)
+  READ_PARAM(init_yaw_dev)
   READ_PARAM(grid_slice_z)
   READ_PARAM(publish_point_cloud_rate)
   READ_PARAM(publish_grid_slice_rate)
@@ -150,7 +160,9 @@ void Node::readParamFromXML()
   READ_PARAM(odom_x_mod)
   READ_PARAM(odom_y_mod)
   READ_PARAM(odom_z_mod)
-  READ_PARAM(odom_a_mod)
+  READ_PARAM(odom_roll_mod)
+  READ_PARAM(odom_pitch_mod)
+  READ_PARAM(odom_yaw_mod)
   READ_PARAM(resample_interval)
   READ_PARAM(update_rate)
   READ_PARAM(d_th)
@@ -158,6 +170,10 @@ void Node::readParamFromXML()
   READ_PARAM(min_particle_num)
   READ_PARAM(max_particle_num_global)
   READ_PARAM(max_particle_num_local)
+  READ_PARAM(min_xy_noise)
+  READ_PARAM(min_z_noise)
+  READ_PARAM(min_rp_noise)
+  READ_PARAM(min_yaw_noise)
     DECLARE_PARAM_READER_END
 
   parameters_.base_frame_id_ = base_frame_id;
@@ -168,7 +184,9 @@ void Node::readParamFromXML()
   parameters_.init_x_ = init_x;
   parameters_.init_y_ = init_y;
   parameters_.init_z_ = init_z;
-  parameters_.init_a_ = init_a;
+  parameters_.init_roll_ = init_roll;
+  parameters_.init_pitch_ = init_pitch;
+  parameters_.init_yaw_ = init_yaw;
 
   parameters_.grid_slice_z_ = grid_slice_z;
   parameters_.publish_point_cloud_rate_ = publish_point_cloud_rate;
@@ -187,11 +205,19 @@ void Node::readParamFromXML()
   amcl_params_.init_x_dev_ = init_x_dev;
   amcl_params_.init_y_dev_ = init_y_dev;
   amcl_params_.init_z_dev_ = init_z_dev;
-  amcl_params_.init_a_dev_ = init_a_dev;
+  amcl_params_.init_roll_dev_ = init_roll_dev;
+  amcl_params_.init_pitch_dev_ = init_pitch_dev;
+  amcl_params_.init_yaw_dev_ = init_yaw_dev;
   amcl_params_.odom_x_mod_ = odom_x_mod;
   amcl_params_.odom_y_mod_ = odom_y_mod;
   amcl_params_.odom_z_mod_ = odom_z_mod;
-  amcl_params_.odom_a_mod_ = odom_a_mod;
+  amcl_params_.odom_roll_mod_ = odom_roll_mod;
+  amcl_params_.odom_pitch_mod_ = odom_pitch_mod;
+  amcl_params_.odom_yaw_mod_ = odom_yaw_mod;
+  amcl_params_.min_xy_noise_ = min_xy_noise;
+  amcl_params_.min_z_noise_ = min_z_noise;
+  amcl_params_.min_rp_noise_ = min_rp_noise;
+  amcl_params_.min_yaw_noise_ = min_yaw_noise;
 }
 
 void Node::publishMapPointCloud(const ros::TimerEvent&)
@@ -222,10 +248,11 @@ void Node::publishParticles()
     msg.poses[i].position.x = static_cast<double>(pf_vec[i].x);
     msg.poses[i].position.y = static_cast<double>(pf_vec[i].y);
     msg.poses[i].position.z = static_cast<double>(pf_vec[i].z);
-    msg.poses[i].orientation.x = 0.;
-    msg.poses[i].orientation.y = 0.;
-    msg.poses[i].orientation.z = sin(static_cast<double>(pf_vec[i].a * 0.5f));
-    msg.poses[i].orientation.w = cos(static_cast<double>(pf_vec[i].a * 0.5f));
+    Eigen::Quaternionf q = eulerAngle2quaternion(pf_vec[i].roll,pf_vec[i].pitch,pf_vec[i].yaw);
+    msg.poses[i].orientation.x = q.x();
+    msg.poses[i].orientation.y = q.y();
+    msg.poses[i].orientation.z = q.z();
+    msg.poses[i].orientation.w = q.w();
   }
   msg.header.stamp = ros::Time::now();
   msg.header.frame_id = parameters_.global_frame_id_;
@@ -275,15 +302,19 @@ void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
   const double delta_x = _t_x;
   const double delta_y = _t_y;
   const double delta_z = _t_z;
-  const double delta_a = _t_yaw;
+  const double delta_roll = _t_roll;
+  const double delta_pitch = _t_pitch;
+  const double delta_yaw = _t_yaw;
 
   VSCOMMON::tic("PFMove");
-  mcl_->PFMove(delta_x, delta_y, delta_z, delta_a);
-  LOG_INFO(g_log,"PFMove time:"<<VSCOMMON::toc("PFMove") * 1000<<" ms");
+  mcl_->PFMove(delta_x, delta_y, delta_z, delta_roll, delta_pitch, delta_yaw);
+  LOG_INFO(g_log,"PFMove time:"<<VSCOMMON::toc("PFMove") * 1000<<" ms"
+    <<"delta: "<< delta_x<<" "<< delta_y<<" "<< delta_z<<" " << VSCOMMON::rad2deg(delta_roll)
+    <<" "<< VSCOMMON::rad2deg(delta_pitch)<<" "<<  VSCOMMON::rad2deg(delta_yaw));
 
   /* Perform particle update based on current point-cloud */
   VSCOMMON::tic("Update");
-  mcl_->update(cloud_down, roll_, pitch_);
+  mcl_->update(cloud_down);
   LOG_INFO(g_log,"Update time:"<<VSCOMMON::toc("Update") * 1000<<" ms");
 
   //  best particle need compute before resample
@@ -307,10 +338,10 @@ void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
   LOG_INFO(g_log,"Finish process frame. cost: " << VSCOMMON::toc("ProcessFrame") * 1000 << " ms."
           <<" particle num:"<< mcl_->getParticle().size());
   LOG_INFO(g_log,"Current robot pose:" << mean_p_.x<<" "<< mean_p_.y<<" "<< mean_p_.z <<" "
-          << mean_p_.a << " weight:" << mean_p_.w);
+          <<mean_p_.roll<<" " << mean_p_.pitch<<" "<< mean_p_.yaw << " weight:" << mean_p_.w);
 
   LOG_INFO(g_log,"Current robot bests pose:" << best_p.x<<" "<< best_p.y<<" "<< best_p.z <<" "
-          << best_p.a << " weight:" << best_p.w);
+          <<best_p.roll<<" " << best_p.pitch<<" "<< best_p.yaw << " weight:" << best_p.w);
 
   /* Publish particles */
   publishParticles();
@@ -357,17 +388,13 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
     if (parameters_.set_initial_pose_)
     {
       Eigen::Affine3f init_pose = pcl::getTransformation(parameters_.init_x_, parameters_.init_y_, parameters_.init_z_
-                                  ,0,0,parameters_.init_a_);
+                                  ,parameters_.init_roll_,parameters_.init_pitch_,parameters_.init_yaw_);
       LOG_COUT_INFO(g_log,__FUNCTION__<<" "<<__LINE__<<" : reloc pose from xml: "
         << parameters_.init_x_<<" "<< parameters_.init_y_<<" "<< parameters_.init_z_ );
       setInitialPose(init_pose);
     }
     return;
   }
-
-  /* Update roll and pitch from odometry */
-  double yaw = eulerAngle[2];
-  roll_ = eulerAngle[0],pitch_ = eulerAngle[1];
 
   static tf::TransformBroadcaster tf_br;
   tf_br.sendTransform(
@@ -382,13 +409,13 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
 
   {
     /* Check if AMCL went wrong (nan, inf) */
-    if (std::isnan(mean_p_.x) || std::isnan(mean_p_.y) || std::isnan(mean_p_.z) || std::isnan(mean_p_.a))
+    if (std::isnan(mean_p_.x) || std::isnan(mean_p_.y) || std::isnan(mean_p_.z) || std::isnan(mean_p_.yaw))
     {
       using namespace VSCOMMON;
       LOG_COUT_WARN(g_log,__FUNCTION__,"AMCL NaN detected");
       amcl_out_ = true;
     }
-    if (std::isinf(mean_p_.x) || std::isinf(mean_p_.y) || std::isinf(mean_p_.z) || std::isinf(mean_p_.a))
+    if (std::isinf(mean_p_.x) || std::isinf(mean_p_.y) || std::isinf(mean_p_.z) || std::isinf(mean_p_.yaw))
     {
       using namespace VSCOMMON;
       LOG_COUT_WARN(g_log,__FUNCTION__,"AMCL Inf detected");
@@ -414,7 +441,7 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
       LOG_COUT_WARN(g_log,__FUNCTION__,"AMCL Jump detected in Z");
       amcl_out_ = true;
     }
-    if (fabs(mean_p_.a - lastmean_p_.a) > 1.)
+    if (fabs(mean_p_.yaw - lastmean_p_.yaw) > 1.)
     {
       using namespace VSCOMMON;
       LOG_COUT_WARN(g_log,__FUNCTION__,"AMCL Jump detected in Yaw");
@@ -424,7 +451,7 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
     if (!amcl_out_)
     {
       Eigen::Affine3f base_2_world_eigen_ = pcl::getTransformation(mean_p_.x, 
-            mean_p_.y, mean_p_.z, roll_, pitch_, mean_p_.a);
+            mean_p_.y, mean_p_.z, mean_p_.roll, mean_p_.pitch, mean_p_.yaw);
 
       //  interpolate pose use odom pose
       base_2_world_eigen_ = base_2_world_eigen_*lastupdatebase_2_odom_eigen_.inverse()*base_2_odom_eigen_;
@@ -506,9 +533,11 @@ void Node::setInitialPose(const Eigen::Affine3f& init_pose)
   const float x_init = _s_x;
   const float y_init = _s_y;
   const float z_init = _s_z;
-  const float a_init = _s_yaw;
+  const float roll_init = _s_roll;
+  const float pitch_init = _s_pitch;
+  const float yaw_init = _s_yaw;
 
-  mcl_->init(parameters_.num_particles_, x_init, y_init, z_init, a_init);
+  mcl_->init(parameters_.num_particles_, x_init, y_init, z_init, roll_init, pitch_init, yaw_init);
 
   mean_p_ = mcl_->getMean();
   lastmean_p_ = mean_p_;

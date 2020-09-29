@@ -40,7 +40,9 @@ public:
   double init_x_; /*!< Start x-axis position */
   double init_y_; /*!< Start y-axis position */
   double init_z_; /*!< Start z-axis position */
-  double init_a_; /*!< Start yaw angle */
+  double init_roll_;
+  double init_pitch_;
+  double init_yaw_; /*!< Start yaw angle */
 
 
 
