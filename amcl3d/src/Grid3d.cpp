@@ -191,58 +191,6 @@ bool Grid3d::open(const std::string& map_path, const double sensor_dev)
   return true;
 }
 
-bool Grid3d::buildGridSliceMsg(const double z, nav_msgs::OccupancyGrid& msg) const
-{
-  if (!grid_info_ || !pc_info_)
-    return false;
-
-  if (z < pc_info_->octo_min_z || z > pc_info_->octo_max_z)
-    return false;
-
-  msg.info.map_load_time = ros::Time::now();
-  msg.info.resolution = pc_info_->octo_resol;
-  msg.info.width = grid_info_->size_x;
-  msg.info.height = grid_info_->size_y;
-  msg.info.origin.position.x = 0.;
-  msg.info.origin.position.y = 0.;
-  msg.info.origin.position.z = z;
-  msg.info.origin.orientation.x = 0.;
-  msg.info.origin.orientation.y = 0.;
-  msg.info.origin.orientation.z = 0.;
-  msg.info.origin.orientation.w = 1.;
-
-  /* Extract max probability */
-  const uint32_t init = point2grid(pc_info_->octo_min_x, pc_info_->octo_min_y, z);
-  const uint32_t end = point2grid(pc_info_->octo_max_x, pc_info_->octo_max_y, z);
-  float temp_prob, max_prob = -1.0;
-  auto grid_ptr = grid_info_->grid.data();
-  for (uint32_t i = init; i < end; ++i)
-  {
-    temp_prob = grid_ptr[i].prob;
-    if (temp_prob > max_prob)
-      max_prob = temp_prob;
-  }
-
-  /* Copy data into grid msg and scale the probability to [0, 100] */
-  if (max_prob < 0.000001f)
-    max_prob = 0.000001f;
-  max_prob = 100.f / max_prob;
-  msg.data.resize(end - init);
-  for (uint32_t i = 0; i < msg.data.size(); ++i)
-    msg.data[i] = static_cast<int8_t>(grid_ptr[init + i].prob * max_prob);
-    LOG_INFO(g_log,__FUNCTION__<<" "<<__LINE__<<" build grid slice msg successful. ");
-  return true;
-}
-
-bool Grid3d::buildMapPointCloudMsg(sensor_msgs::PointCloud2& msg) const
-{
-  if (!pc_info_ || !pc_info_->cloud)
-    return false;
-
-  pcl::toROSMsg(*pc_info_->cloud, msg);
-  LOG_INFO(g_log, __FUNCTION__<<" "<<__LINE__<<" build pointcloud msg successful. ");
-  return true;
-}
 
 float Grid3d::computeCloudWeight(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, const float tx, const float ty,
                                  const float tz, const float roll, const float pitch, const float yaw) const
@@ -391,7 +339,7 @@ bool Grid3d::loadGrid(const std::string& grid_path, const double sensor_dev)
   return true;
 }
 
-inline uint32_t Grid3d::point2grid(const float x, const float y, const float z) const
+uint32_t Grid3d::point2grid(const float x, const float y, const float z) const
 {
   return static_cast<uint32_t>((x - pc_info_->octo_min_x) / pc_info_->octo_resol) +
          static_cast<uint32_t>((y - pc_info_->octo_min_y) / pc_info_->octo_resol) * grid_info_->step_y +

@@ -100,7 +100,7 @@ namespace amcl3d
   }
   int MonteCarloLocalization::computeSampleNum(const int cnt_per_grid /*= 9*/)
   {
-    float xyz_step = 0.5;
+    float xyz_step = 0.2;
     float theta_step = 8.0;
     float xmin, xmax, ymin, ymax ,zmin, zmax;
     computeBoundary(p_,xmin,ymin,zmin,xmax,ymax,zmax);

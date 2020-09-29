@@ -23,14 +23,20 @@
 #include <rosinrange_msg/RangePose.h>
 #include <tf/transform_broadcaster.h>
 #include <nav_msgs/Odometry.h>
+#include <nav_msgs/OccupancyGrid.h>
 #include <geometry_msgs/Point32.h>
 #include <geometry_msgs/PoseArray.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
+#include <pcl_ros/point_cloud.h>
+#include <pcl/registration/icp.h>
 
 #include <common/vs_common.h>
 #include <common/vs_utils.h>
 #include <common/vs_timer.h>
 #include <io/vs_param_reader.h>
+
+#include <Eigen/Core>
+#include <Eigen/Geometry>
 
 #define TOOL_VERSION ("amcl3d")
 /*! \brief Namespace of the algorithm.
@@ -63,6 +69,7 @@ public:
 
   void readParamFromXML();
 
+
 private:
   /*! \brief To publish the environment map point cloud.
    *
@@ -85,7 +92,6 @@ private:
    */
   void publishParticles();
 
-  void publishPoseTransfrom(ros::Time&);
 
   /*! \brief To process the point cloud that arrives from the UAV view.
    *
@@ -138,16 +144,41 @@ private:
    * taking into account the given pose and the marked deviations, to later publish them. In this way, the particles are
    * initialized around the initial pose, the threshold is marked by deviations.
    */
-  void setInitialPose(const tf::Transform& init_pose);
+  void setInitialPose(const Eigen::Affine3f& init_pose);
 
-  /*! \brief Return yaw from a given TF.
+  Eigen::Vector3f quaternion2eulerAngle(float x,float y,float z,float w);
+
+  Eigen::Quaternionf eulerAngle2quaternion(float roll,float pitch,float yaw);
+
+  tf::Transform getTransformFromAffine3f(const Eigen::Affine3f& tf_pose);
+
+
+  /*! \brief To create the message of the grid slice.
    *
-   * \param tf Transformation.
-   * \return <b>double</b> - Yaw angle of the TF.
+   * \param z Build height.
+   * \param msg Occupancy grid message.
+   * \return <b>bool=False</b> - If there are problems with the point cloud map information, grid map information nor
+   * the
+   * selected height.
+   * \return <b>bool=True</b> - If the construction has been done without problem.
    *
-   * It lets to know the yaw orientation of any TF.
+   * It checks variables that shows information of the point cloud and information of the grid, to realize if there are
+   * errors that can oblige to end the algorithm. Besides, it also checks if the height selected like input comply
+   * with the size of the octomap. Subsequently, it extracts the probability of each grid point to find the maximum
+   * probability and be able to rescale it in the occupancy message.
    */
-  double getYawFromTf(const tf::Transform& tf);
+  bool buildGridSliceMsg(const double z, nav_msgs::OccupancyGrid& msg) const;
+
+  /*! \brief To transform the information of point cloud into the message of ROS.
+   *
+   * \param msg Point cloud message.
+   * \return <b>bool=False</b> - If there are problems with the point cloud map information.
+   * \return <b>bool=True</b> - If the construction has been done without problem.
+   *
+   * It uses the pcl library to do the conversion but first, it checks for problems with the point cloud information.
+   * The output is true if the conversion has been done, or false if there are errors with the information.
+   */
+  bool buildMapPointCloudMsg(sensor_msgs::PointCloud2& msg) const;
 
 
   std::string WORKING_DIR = "./";
@@ -184,16 +215,16 @@ private:
   ros::Subscriber initialPose_sub_;
 
   ros::Publisher particles_pose_pub_; /*!< Particles publisher */
-  ros::Publisher odom_base_pub_;      /*!< Estimated pose UAV publisher */
   ros::Publisher cloud_filter_pub_;   /*!< Filtered point cloud publisher */
 
-  tf::Transform lastbase_2_world_tf_;         /*!< Base-world last transformation  */
-  tf::Transform initodom_2_world_tf_;         /*!< Odom-world init transformation */
-  tf::Transform lastodom_2_world_tf_;         /*!< Odom-world last transformation */
-  tf::Transform amcl_out_lastbase_2_odom_tf_; /*!< Base-odom Transformation for the appearance of jumps */
-  tf::Transform lastupdatebase_2_odom_tf_;    /*!< Base-odom last update transformation  */
-  tf::Transform base_2_odom_tf_;              /*!< Base-odom Transformation */
-  tf::Transform odom_increment_tf_;           /*!< Odom increase transformation  */
+
+  Eigen::Affine3f lastbase_2_world_eigen_;            /*!< Base-world last transformation  */
+  Eigen::Affine3f initodom_2_world_eigen_;            /*!< Odom-world init transformation */
+  Eigen::Affine3f lastodom_2_world_eigen_;            /*!< Odom-world last transformation */
+  Eigen::Affine3f amcl_out_lastbase_2_odom_eigen_;    /*!< Base-odom Transformation for the appearance of jumps */
+  Eigen::Affine3f lastupdatebase_2_odom_eigen_;       /*!< Base-odom last update transformation  */
+  Eigen::Affine3f base_2_odom_eigen_;                 /*!< Base-odom Transformation */
+  Eigen::Affine3f odom_increment_eigen_;              /*!< Odom increase transformation  */
 
   std::shared_ptr<tf::TransformBroadcaster> tf_broadcaster;
 

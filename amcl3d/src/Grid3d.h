@@ -17,13 +17,8 @@
 
 #pragma once
 
-#include <geometry_msgs/PoseArray.h>
-#include <nav_msgs/OccupancyGrid.h>
-// #include <octomap/OcTree.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <tf/tf.h>
 
 #include "PointCloudTools.h"
 
@@ -61,32 +56,6 @@ public:
    */
   bool open(const std::string& map_path, const double sensor_dev);
 
-  /*! \brief To create the message of the grid slice.
-   *
-   * \param z Build height.
-   * \param msg Occupancy grid message.
-   * \return <b>bool=False</b> - If there are problems with the point cloud map information, grid map information nor
-   * the
-   * selected height.
-   * \return <b>bool=True</b> - If the construction has been done without problem.
-   *
-   * It checks variables that shows information of the point cloud and information of the grid, to realize if there are
-   * errors that can oblige to end the algorithm. Besides, it also checks if the height selected like input comply
-   * with the size of the octomap. Subsequently, it extracts the probability of each grid point to find the maximum
-   * probability and be able to rescale it in the occupancy message.
-   */
-  bool buildGridSliceMsg(const double z, nav_msgs::OccupancyGrid& msg) const;
-
-  /*! \brief To transform the information of point cloud into the message of ROS.
-   *
-   * \param msg Point cloud message.
-   * \return <b>bool=False</b> - If there are problems with the point cloud map information.
-   * \return <b>bool=True</b> - If the construction has been done without problem.
-   *
-   * It uses the pcl library to do the conversion but first, it checks for problems with the point cloud information.
-   * The output is true if the conversion has been done, or false if there are errors with the information.
-   */
-  bool buildMapPointCloudMsg(sensor_msgs::PointCloud2& msg) const;
 
   /*! \brief To calculate the particle weight.
    *
@@ -119,6 +88,23 @@ public:
 
   bool loadPCD(std::string file_path,pcl::PointCloud < pcl::PointXYZ>::Ptr& input);
 
+  /*! \brief To create a vector that contains the grid data.
+   *
+   * \param x Point x-axis position.
+   * \param y Point y-axis position.
+   * \param z Point z-axis position.
+   * \return <b>uint32_t</b> - Vector with the information of the grid map.
+   *
+   * It needs the point of point cloud to do the relation with the octomap and the grid.
+   * It turns the matrix into a vector so you can move through it. It was used in the "Grid3d: buildGridSliceMsg" to
+   * extract the maximum probability touring said vector.
+   */
+  uint32_t point2grid(const float x, const float y, const float z) const;
+
+  PointCloudInfo::Ptr pc_info_; /*!< 3D point cloud representation of the map. */
+
+  Grid3dInfo::Ptr grid_info_; /*!< 3D probabilistic grid cell */
+
 private:
   /*! \brief To save the file of map like grid.
    *
@@ -143,22 +129,6 @@ private:
    */
   bool loadGrid(const std::string& grid_path, const double sensor_dev);
 
-  /*! \brief To create a vector that contains the grid data.
-   *
-   * \param x Point x-axis position.
-   * \param y Point y-axis position.
-   * \param z Point z-axis position.
-   * \return <b>uint32_t</b> - Vector with the information of the grid map.
-   *
-   * It needs the point of point cloud to do the relation with the octomap and the grid.
-   * It turns the matrix into a vector so you can move through it. It was used in the "Grid3d: buildGridSliceMsg" to
-   * extract the maximum probability touring said vector.
-   */
-  inline uint32_t point2grid(const float x, const float y, const float z) const;
-
-  PointCloudInfo::Ptr pc_info_; /*!< 3D point cloud representation of the map. */
-
-  Grid3dInfo::Ptr grid_info_; /*!< 3D probabilistic grid cell */
 
   VSCOMMON::LoggerPtr g_log;
 };

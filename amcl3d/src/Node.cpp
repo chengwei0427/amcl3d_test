@@ -20,7 +20,6 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/point_cloud2_iterator.h>
-//#include <visualization_msgs/Marker.h>
 
 
 
@@ -54,7 +53,7 @@ void Node::spin()
     return;
 
   if (parameters_.publish_grid_slice_rate_ != 0 &&
-      grid3d_->buildGridSliceMsg(parameters_.grid_slice_z_, grid_slice_msg_))
+      buildGridSliceMsg(parameters_.grid_slice_z_, grid_slice_msg_))
   {
     grid_slice_msg_.header.frame_id = parameters_.global_frame_id_;
     grid_slice_pub_ = nh_.advertise<nav_msgs::OccupancyGrid>("grid_slice", 1, true);
@@ -62,7 +61,7 @@ void Node::spin()
         nh_.createTimer(ros::Duration(ros::Rate(parameters_.publish_grid_slice_rate_)), &Node::publishGridSlice, this);
   }
 
-  if (parameters_.publish_point_cloud_rate_ != 0 && grid3d_->buildMapPointCloudMsg(map_point_cloud_msg_))
+  if (parameters_.publish_point_cloud_rate_ != 0 && buildMapPointCloudMsg(map_point_cloud_msg_))
   {
     map_point_cloud_msg_.header.frame_id = parameters_.global_frame_id_;
     map_point_cloud_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("map_point_cloud", 1, true);
@@ -75,7 +74,6 @@ void Node::spin()
   initialPose_sub_ = nh_.subscribe("/initialpose",1,&Node::initialPoseCallback,this);
 
   particles_pose_pub_ = nh_.advertise<geometry_msgs::PoseArray>("particle_cloud", 1, true);
-  odom_base_pub_ = nh_.advertise<geometry_msgs::TransformStamped>("base_transform", 1);
 
   cloud_filter_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("pointcloud_filtered", 0);
 
@@ -198,16 +196,12 @@ void Node::readParamFromXML()
 
 void Node::publishMapPointCloud(const ros::TimerEvent&)
 {
-  //LOG_INFO(g_log,__FUNCTION__<<" Node::publishMapPointCloud()");
-
   map_point_cloud_msg_.header.stamp = ros::Time::now();
   map_point_cloud_pub_.publish(map_point_cloud_msg_);
 }
 
 void Node::publishGridSlice(const ros::TimerEvent&)
 {
-  //LOG_INFO(g_log,__FUNCTION__<<" Node::publishGridSlice()");
-
   grid_slice_msg_.header.stamp = ros::Time::now();
   grid_slice_pub_.publish(grid_slice_msg_);
 }
@@ -240,20 +234,8 @@ void Node::publishParticles()
   particles_pose_pub_.publish(msg);
 }
 
-void Node::publishPoseTransfrom(ros::Time& stamp)
-{
-  tf::Transform transform;
-  transform.setOrigin( tf::Vector3(mean_p_.x, mean_p_.y, mean_p_.z) );
-  tf::Quaternion q;
-  q.setRPY(0, 0, mean_p_.a);
-  transform.setRotation(q);
-  tf_broadcaster->sendTransform(tf::StampedTransform(transform, stamp, "world", "velodyne"));
-}
-
 void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
 {
-  //LOG_INFO(g_log,"pointcloudCallback open");
-
   if (!is_odom_arrive_)
   {
     using namespace VSCOMMON;
@@ -285,11 +267,15 @@ void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
   LOG_INFO(g_log,"Filter time:"<<VSCOMMON::toc("Filter") * 1000<<" ms");
 
   /* Perform particle prediction based on odometry */
-  odom_increment_tf_ = lastupdatebase_2_odom_tf_.inverse() * base_2_odom_tf_;
-  const double delta_x = odom_increment_tf_.getOrigin().getX();
-  const double delta_y = odom_increment_tf_.getOrigin().getY();
-  const double delta_z = odom_increment_tf_.getOrigin().getZ();
-  const double delta_a = getYawFromTf(odom_increment_tf_);
+  odom_increment_eigen_ = lastupdatebase_2_odom_eigen_.inverse()*base_2_odom_eigen_;
+
+  float _t_x, _t_y, _t_z, _t_roll, _t_pitch, _t_yaw;
+  pcl::getTranslationAndEulerAngles(odom_increment_eigen_, _t_x, _t_y, _t_z, _t_roll, _t_pitch, _t_yaw);
+
+  const double delta_x = _t_x;
+  const double delta_y = _t_y;
+  const double delta_z = _t_z;
+  const double delta_a = _t_yaw;
 
   VSCOMMON::tic("PFMove");
   mcl_->PFMove(delta_x, delta_y, delta_z, delta_a);
@@ -312,11 +298,10 @@ void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
   }
 
   mean_p_ = mcl_->getMean();
-  ros::Time pf_stamp = msg->header.stamp;
-  // publishPoseTransfrom(pf_stamp);
 
   /* Update time and transform information */
-  lastupdatebase_2_odom_tf_ = base_2_odom_tf_;
+  lastupdatebase_2_odom_eigen_ = base_2_odom_eigen_;
+  //lastupdatebase_2_odom_tf_ = base_2_odom_tf_;
 
   LOG_INFO(g_log,"Resample time:"<<VSCOMMON::toc("Resample") * 1000<<" ms");
   LOG_INFO(g_log,"Finish process frame. cost: " << VSCOMMON::toc("ProcessFrame") * 1000 << " ms."
@@ -330,150 +315,39 @@ void Node::pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg)
   /* Publish particles */
   publishParticles();
 
-  //LOG_INFO(g_log,"pointcloudCallback close");
 }
 
-/*void Node::odomCallback(const geometry_msgs::TransformStampedConstPtr& msg)
+Eigen::Vector3f Node::quaternion2eulerAngle(float x,float y,float z,float w)
 {
-  ROS_DEBUG("odomCallback open");
+  //tf::Matrix3x3().getRPY()函数将四元数转换为rpy(分别为绕xyz)
+  Eigen::Quaternionf quaternion(w,x,y,z);
+  Eigen::Vector3f eulerAngle=quaternion.matrix().eulerAngles(0,1,2);  //绕x-y-z
+  return eulerAngle;
+}
 
-  base_2_odom_tf_.setOrigin(
-      tf::Vector3(msg->transform.translation.x, msg->transform.translation.y, msg->transform.translation.z));
-  base_2_odom_tf_.setRotation(tf::Quaternion(msg->transform.rotation.x, msg->transform.rotation.y,
-                                             msg->transform.rotation.z, msg->transform.rotation.w));
+Eigen::Quaternionf Node::eulerAngle2quaternion(float roll,float pitch,float yaw)
+{
+  Eigen::Vector3f eulerAngle(roll,pitch,yaw); //  初始化euler,X-Y-Z
+  Eigen::AngleAxisf rollAngle(Eigen::AngleAxisf(eulerAngle(0),Eigen::Vector3f::UnitX()));
+  Eigen::AngleAxisf pitchAngle(Eigen::AngleAxisf(eulerAngle(1),Eigen::Vector3f::UnitY()));
+  Eigen::AngleAxisf yawAngle(Eigen::AngleAxisf(eulerAngle(2),Eigen::Vector3f::UnitZ())); 
+  Eigen::Quaternionf quaternion;
+  quaternion=yawAngle*pitchAngle*rollAngle;
+  return quaternion;
+}
 
-  // If the filter is not initialized then exit 
-  if (!pf_.isInitialized())
-  {
-    ROS_WARN("Filter not initialized yet, waiting for initial pose.");
-    if (parameters_.set_initial_pose_)
-    {
-      tf::Transform init_pose;
-      init_pose.setOrigin(tf::Vector3(parameters_.init_x_, parameters_.init_y_, parameters_.init_z_));
-      init_pose.setRotation(tf::Quaternion(0.0, 0.0, sin(parameters_.init_a_ * 0.5), cos(parameters_.init_a_ * 0.5)));
-      setInitialPose(init_pose, parameters_.init_x_dev_, parameters_.init_y_dev_, parameters_.init_z_dev_,
-                     parameters_.init_a_dev_);
-    }
-    return;
-  }
-
-  // Update roll and pitch from odometry 
-  double yaw;
-  base_2_odom_tf_.getBasis().getRPY(roll_, pitch_, yaw);
-
-  static tf::TransformBroadcaster tf_br;
-  tf_br.sendTransform(
-      tf::StampedTransform(base_2_odom_tf_, ros::Time::now(), parameters_.odom_frame_id_, parameters_.base_frame_id_));
-
-  if (!is_odom_arrive_)
-  {
-    is_odom_arrive_ = true;
-
-    lastbase_2_world_tf_ = initodom_2_world_tf_ * base_2_odom_tf_;
-    lastodom_2_world_tf_ = initodom_2_world_tf_;
-  }
-
-  static bool has_takenoff = false;
-  if (!has_takenoff)
-  {
-    ROS_WARN("Not <<taken off>> yet");
-
-    // Check takeoff height 
-    has_takenoff = base_2_odom_tf_.getOrigin().getZ() > parameters_.take_off_height_;
-
-    lastbase_2_world_tf_ = initodom_2_world_tf_ * base_2_odom_tf_;
-    lastodom_2_world_tf_ = initodom_2_world_tf_;
-
-    lastmean_p_ = mean_p_;  // for not 'jumping' whenever has_takenoff is true 
-  }
-  else
-  {
-    // Check if AMCL went wrong (nan, inf) 
-    if (std::isnan(mean_p_.x) || std::isnan(mean_p_.y) || std::isnan(mean_p_.z) || std::isnan(mean_p_.a))
-    {
-      ROS_WARN("AMCL NaN detected");
-      amcl_out_ = true;
-    }
-    if (std::isinf(mean_p_.x) || std::isinf(mean_p_.y) || std::isinf(mean_p_.z) || std::isinf(mean_p_.a))
-    {
-      ROS_WARN("AMCL Inf detected");
-      amcl_out_ = true;
-    }
-
-    // Check jumps 
-    if (fabs(mean_p_.x - lastmean_p_.x) > 1.)
-    {
-      ROS_WARN("AMCL Jump detected in X");
-      amcl_out_ = true;
-    }
-    if (fabs(mean_p_.y - lastmean_p_.y) > 1.)
-    {
-      ROS_WARN("AMCL Jump detected in Y");
-      amcl_out_ = true;
-    }
-    if (fabs(mean_p_.z - lastmean_p_.z) > 1.)
-    {
-      ROS_WARN("AMCL Jump detected in Z");
-      amcl_out_ = true;
-    }
-    if (fabs(mean_p_.a - lastmean_p_.a) > 1.)
-    {
-      ROS_WARN("AMCL Jump detected in Yaw");
-      amcl_out_ = true;
-    }
-
-    if (!amcl_out_)
-    {
-      tf::Transform base_2_world_tf;
-      base_2_world_tf.setOrigin(tf::Vector3(mean_p_.x, mean_p_.y, mean_p_.z));
-      tf::Quaternion q;
-      q.setRPY(roll_, pitch_, mean_p_.a);
-      base_2_world_tf.setRotation(q);
-
-      base_2_world_tf = base_2_world_tf * lastupdatebase_2_odom_tf_.inverse() * base_2_odom_tf_;
-
-      lastmean_p_ = mean_p_;
-
-      lastbase_2_world_tf_ = base_2_world_tf;
-      lastodom_2_world_tf_ = base_2_world_tf * base_2_odom_tf_.inverse();
-
-      amcl_out_lastbase_2_odom_tf_ = lastupdatebase_2_odom_tf_;
-    }
-    else
-    {
-      lastbase_2_world_tf_ = lastbase_2_world_tf_ * amcl_out_lastbase_2_odom_tf_.inverse() * base_2_odom_tf_;
-      amcl_out_lastbase_2_odom_tf_ = base_2_odom_tf_;
-    }
-  }
-
-  // Publish transform 
-  geometry_msgs::TransformStamped odom_2_base_tf;
-  odom_2_base_tf.header.stamp = msg->header.stamp;
-  odom_2_base_tf.header.frame_id = parameters_.global_frame_id_;
-  odom_2_base_tf.child_frame_id = parameters_.base_frame_id_;
-  odom_2_base_tf.transform.translation.x = lastbase_2_world_tf_.getOrigin().getX();
-  odom_2_base_tf.transform.translation.y = lastbase_2_world_tf_.getOrigin().getY();
-  odom_2_base_tf.transform.translation.z = lastbase_2_world_tf_.getOrigin().getZ();
-  odom_2_base_tf.transform.rotation.x = lastbase_2_world_tf_.getRotation().getX();
-  odom_2_base_tf.transform.rotation.y = lastbase_2_world_tf_.getRotation().getY();
-  odom_2_base_tf.transform.rotation.z = lastbase_2_world_tf_.getRotation().getZ();
-  odom_2_base_tf.transform.rotation.w = lastbase_2_world_tf_.getRotation().getW();
-  odom_base_pub_.publish(odom_2_base_tf);
-
-  tf_br.sendTransform(tf::StampedTransform(lastodom_2_world_tf_, ros::Time::now(), parameters_.global_frame_id_,
-                                           parameters_.odom_frame_id_));
-
-  ROS_DEBUG("odomCallback close");
-}*/
 
 void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
 {
-  //LOG_INFO(g_log,"odomCallback open");
+  /*double _o_roll, _o_pitch, _o_yaw;
+  tf::Matrix3x3(tf::Quaternion(msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
+                msg->pose.pose.orientation.z, msg->pose.pose.orientation.w)).getRPY(_o_roll, _o_pitch, _o_yaw);*/
 
-  base_2_odom_tf_.setOrigin(
-      tf::Vector3(msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z));
-  base_2_odom_tf_.setRotation(tf::Quaternion(msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
-                                             msg->pose.pose.orientation.z, msg->pose.pose.orientation.w));
+  Eigen::Vector3f eulerAngle = quaternion2eulerAngle(msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
+                                             msg->pose.pose.orientation.z, msg->pose.pose.orientation.w);
+
+  base_2_odom_eigen_ = pcl::getTransformation(msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z
+                      ,eulerAngle[0], eulerAngle[1], eulerAngle[2]);
 
   /* If the filter is not initialized then exit */
   if (!mcl_->isInitialized())
@@ -482,51 +356,30 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
     LOG_COUT_WARN(g_log,__FUNCTION__,"amcl3d not initialized yet, waiting for initial pose.");
     if (parameters_.set_initial_pose_)
     {
-      tf::Transform init_pose;
-      init_pose.setOrigin(tf::Vector3(parameters_.init_x_, parameters_.init_y_, parameters_.init_z_));
-      init_pose.setRotation(tf::Quaternion(0.0, 0.0, sin(parameters_.init_a_ * 0.5), cos(parameters_.init_a_ * 0.5)));
-
-      LOG_COUT_INFO(g_log,__FUNCTION__<<" "<<__LINE__<<" : set initial pose here.");
+      Eigen::Affine3f init_pose = pcl::getTransformation(parameters_.init_x_, parameters_.init_y_, parameters_.init_z_
+                                  ,0,0,parameters_.init_a_);
+      LOG_COUT_INFO(g_log,__FUNCTION__<<" "<<__LINE__<<" : reloc pose from xml: "
+        << parameters_.init_x_<<" "<< parameters_.init_y_<<" "<< parameters_.init_z_ );
       setInitialPose(init_pose);
     }
     return;
   }
 
   /* Update roll and pitch from odometry */
-  double yaw;
-  base_2_odom_tf_.getBasis().getRPY(roll_, pitch_, yaw);
+  double yaw = eulerAngle[2];
+  roll_ = eulerAngle[0],pitch_ = eulerAngle[1];
 
   static tf::TransformBroadcaster tf_br;
   tf_br.sendTransform(
-      tf::StampedTransform(base_2_odom_tf_, ros::Time::now(), parameters_.odom_frame_id_, parameters_.base_frame_id_));
+      tf::StampedTransform(getTransformFromAffine3f(base_2_odom_eigen_), ros::Time::now(), parameters_.odom_frame_id_, parameters_.base_frame_id_));
 
   if (!is_odom_arrive_)
   {
     is_odom_arrive_ = true;
-    //  may not right here
-    //lastbase_2_world_tf_ = initodom_2_world_tf_ * base_2_odom_tf_;
-    //lastodom_2_world_tf_ = initodom_2_world_tf_;
-    lastbase_2_world_tf_ = initodom_2_world_tf_;
-    lastodom_2_world_tf_ = lastbase_2_world_tf_ * base_2_odom_tf_.inverse();
+    lastbase_2_world_eigen_ = initodom_2_world_eigen_;
+    lastodom_2_world_eigen_ = lastbase_2_world_eigen_*base_2_odom_eigen_.inverse();
   }
 
-  /*static bool has_takenoff = false; //  take off or not
-  if (!has_takenoff)
-  {
-    using namespace VSCOMMON;
-    LOG_COUT_WARN(g_log,__FUNCTION__,"Not <<taken off>> yet");
-
-    // Check takeoff height 
-    has_takenoff = base_2_odom_tf_.getOrigin().getZ() > parameters_.take_off_height_;
-
-    //lastbase_2_world_tf_ = initodom_2_world_tf_ * base_2_odom_tf_;
-    //lastodom_2_world_tf_ = initodom_2_world_tf_;
-    lastbase_2_world_tf_ = initodom_2_world_tf_;
-    lastodom_2_world_tf_ = lastbase_2_world_tf_ * base_2_odom_tf_.inverse();
-
-    lastmean_p_ = mean_p_;  // for not 'jumping' whenever has_takenoff is true 
-  }
-  else*/
   {
     /* Check if AMCL went wrong (nan, inf) */
     if (std::isnan(mean_p_.x) || std::isnan(mean_p_.y) || std::isnan(mean_p_.z) || std::isnan(mean_p_.a))
@@ -570,64 +423,53 @@ void Node::odomCallback(const nav_msgs::OdometryConstPtr& msg)
 
     if (!amcl_out_)
     {
-      tf::Transform base_2_world_tf;
-      base_2_world_tf.setOrigin(tf::Vector3(mean_p_.x, mean_p_.y, mean_p_.z));
-      tf::Quaternion q;
-      q.setRPY(roll_, pitch_, mean_p_.a);
-      base_2_world_tf.setRotation(q);
+      Eigen::Affine3f base_2_world_eigen_ = pcl::getTransformation(mean_p_.x, 
+            mean_p_.y, mean_p_.z, roll_, pitch_, mean_p_.a);
 
       //  interpolate pose use odom pose
-      base_2_world_tf = base_2_world_tf * lastupdatebase_2_odom_tf_.inverse() * base_2_odom_tf_;
+      base_2_world_eigen_ = base_2_world_eigen_*lastupdatebase_2_odom_eigen_.inverse()*base_2_odom_eigen_;
 
       lastmean_p_ = mean_p_;
 
-      lastbase_2_world_tf_ = base_2_world_tf;
-      lastodom_2_world_tf_ = base_2_world_tf * base_2_odom_tf_.inverse();
+      lastbase_2_world_eigen_ = base_2_world_eigen_;
+      lastodom_2_world_eigen_ = base_2_world_eigen_*base_2_odom_eigen_.inverse();
 
-      amcl_out_lastbase_2_odom_tf_ = lastupdatebase_2_odom_tf_;
+      amcl_out_lastbase_2_odom_eigen_ = lastupdatebase_2_odom_eigen_;
     }
     else
     {
       //  无amcl定位数据，里程计航迹推演
-      lastbase_2_world_tf_ = lastbase_2_world_tf_ * amcl_out_lastbase_2_odom_tf_.inverse() * base_2_odom_tf_;
-      amcl_out_lastbase_2_odom_tf_ = base_2_odom_tf_;
+      lastbase_2_world_eigen_ = lastbase_2_world_eigen_*amcl_out_lastbase_2_odom_eigen_.inverse()*base_2_odom_eigen_;
+      amcl_out_lastbase_2_odom_eigen_ = base_2_odom_eigen_;
     }
   }
 
-  /* Publish transform */
-  geometry_msgs::TransformStamped odom_2_base_tf;
-  odom_2_base_tf.header.stamp = msg->header.stamp;
-  odom_2_base_tf.header.frame_id = parameters_.global_frame_id_;
-  odom_2_base_tf.child_frame_id = parameters_.base_frame_id_;
-  odom_2_base_tf.transform.translation.x = lastbase_2_world_tf_.getOrigin().getX();
-  odom_2_base_tf.transform.translation.y = lastbase_2_world_tf_.getOrigin().getY();
-  odom_2_base_tf.transform.translation.z = lastbase_2_world_tf_.getOrigin().getZ();
-  odom_2_base_tf.transform.rotation.x = lastbase_2_world_tf_.getRotation().getX();
-  odom_2_base_tf.transform.rotation.y = lastbase_2_world_tf_.getRotation().getY();
-  odom_2_base_tf.transform.rotation.z = lastbase_2_world_tf_.getRotation().getZ();
-  odom_2_base_tf.transform.rotation.w = lastbase_2_world_tf_.getRotation().getW();
-  //odom_base_pub_.publish(odom_2_base_tf);
-  //  send transform between odom and world frame
-  tf_br.sendTransform(tf::StampedTransform(lastodom_2_world_tf_, ros::Time::now(), parameters_.global_frame_id_,
-                                           parameters_.odom_frame_id_));
 
-  //LOG_INFO(g_log,"odomCallback close");
+  //  send transform between odom and world frame
+  tf_br.sendTransform(tf::StampedTransform(getTransformFromAffine3f(lastodom_2_world_eigen_), ros::Time::now(), parameters_.global_frame_id_,
+                                           parameters_.odom_frame_id_));
 }
 
 void Node::initialPoseCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr& msg)
 {
-      tf::Transform init_pose;
-      init_pose.setOrigin(tf::Vector3(msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z));
-      init_pose.setRotation(tf::Quaternion(msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
-       msg->pose.pose.orientation.z, msg->pose.pose.orientation.w));
+      /*double _i_roll, _i_pitch, _i_yaw;
+      tf::Matrix3x3(tf::Quaternion(msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
+                    msg->pose.pose.orientation.z, msg->pose.pose.orientation.w)).getRPY(_i_roll, _i_pitch, _i_yaw);*/
+
+      Eigen::Vector3f eulerAngle = quaternion2eulerAngle(msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
+                                             msg->pose.pose.orientation.z, msg->pose.pose.orientation.w);
+
+      Eigen::Affine3f init_pose = pcl::getTransformation(msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z
+                                  ,eulerAngle[0],eulerAngle[1],eulerAngle[2]);
       using namespace VSCOMMON;
-      LOG_COUT_INFO(g_log,__FUNCTION__<<" "<<__LINE__<<" : get input initial pose here.");
+      LOG_COUT_INFO(g_log,__FUNCTION__<<" "<<__LINE__<<" : reloc pose from rviz."
+        << init_pose(0,3)<<" "<< init_pose(1,3)<<" "<< init_pose(2,3)<<" "
+        << eulerAngle[0]<<" "<< eulerAngle[1]<<" "<<eulerAngle[2]);
       setInitialPose(init_pose);
 }
 
 bool Node::checkUpdateThresholds()
 {
-  // LOG_INFO(g_log,"Checking for AMCL3D update");
   static bool b_check_first = true;
   if(b_check_first)
     {
@@ -638,57 +480,112 @@ bool Node::checkUpdateThresholds()
   if (ros::Time::now() < nextupdate_time_)
     return false;
   //  odom increment between last amcl pose and current
-  odom_increment_tf_ = lastupdatebase_2_odom_tf_.inverse() * base_2_odom_tf_;
+  odom_increment_eigen_ = lastupdatebase_2_odom_eigen_.inverse()*base_2_odom_eigen_;
 
+  float c_x,c_y,c_z,c_roll,c_pitch,c_yaw;
+  pcl::getTranslationAndEulerAngles(odom_increment_eigen_, c_x,c_y,c_z,c_roll,c_pitch,c_yaw);
   /* Check translation threshold */
-  if (odom_increment_tf_.getOrigin().length() > parameters_.d_th_)
+  if(c_x*c_x+c_y*c_y+c_z*c_z > parameters_.d_th_*parameters_.d_th_)
   {
-    //ROS_INFO("Translation update");
     return true;
   }
-
-  /* Check yaw threshold */
-  double yaw, pitch, roll;
-  odom_increment_tf_.getBasis().getRPY(roll, pitch, yaw);
-  if (fabs(yaw) > parameters_.a_th_)
+  if(fabs(c_yaw) > parameters_.a_th_)
   {
-    //ROS_INFO("Rotation update");
     return true;
   }
 
   return false;
 }
 
-void Node::setInitialPose(const tf::Transform& init_pose)
+void Node::setInitialPose(const Eigen::Affine3f& init_pose)
 {
-  initodom_2_world_tf_ = init_pose;
+  initodom_2_world_eigen_ = init_pose;
+  float _s_x, _s_y, _s_z, _s_roll, _s_pitch, _s_yaw;
+  pcl::getTranslationAndEulerAngles(init_pose, _s_x, _s_y, _s_z, _s_roll, _s_pitch, _s_yaw);
 
-  const tf::Vector3 t = init_pose.getOrigin();
-
-  const float x_init = t.x();
-  const float y_init = t.y();
-  const float z_init = t.z();
-  const float a_init = static_cast<float>(getYawFromTf(init_pose));
+  const float x_init = _s_x;
+  const float y_init = _s_y;
+  const float z_init = _s_z;
+  const float a_init = _s_yaw;
 
   mcl_->init(parameters_.num_particles_, x_init, y_init, z_init, a_init);
 
   mean_p_ = mcl_->getMean();
   lastmean_p_ = mean_p_;
 
-  /* Extract TFs for future updates */
-  /* Reset lastupdatebase_2_odom_tf_ */
-  lastupdatebase_2_odom_tf_ = base_2_odom_tf_;
+  lastupdatebase_2_odom_eigen_ = base_2_odom_eigen_;
 
-  /* Publish particles */
   publishParticles();
 }
 
-double Node::getYawFromTf(const tf::Transform& tf)
+tf::Transform Node::getTransformFromAffine3f(const Eigen::Affine3f& tf_pose)
 {
-  double yaw, pitch, roll;
-  tf.getBasis().getRPY(roll, pitch, yaw);
+  float _g_x, _g_y, _g_z, _g_roll, _g_pitch, _g_yaw;
+  pcl::getTranslationAndEulerAngles(tf_pose, _g_x, _g_y, _g_z, _g_roll, _g_pitch, _g_yaw);  
 
-  return yaw;
+  Eigen::Quaternionf eq = eulerAngle2quaternion(_g_roll,_g_pitch,_g_yaw);
+
+  tf::Quaternion q(eq.x(),eq.y(),eq.z(),eq.w());
+  //q.setRPY(_g_roll, _g_pitch, _g_yaw);
+
+  //std::cout<<q.x()<<" "<< q.y()<<" "<<q.z()<<" "<< q.w()<<" --- "<< eq.x()<<" "<< eq.y()<<" "<< eq.z()<<" "<< eq.w()<<std::endl;
+  tf::Transform out_pose;
+  out_pose.setOrigin(tf::Vector3(_g_x, _g_y, _g_z));
+  out_pose.setRotation(q);
+  return out_pose;
+}
+
+bool Node::buildMapPointCloudMsg(sensor_msgs::PointCloud2& msg) const
+{
+  if (!grid3d_->pc_info_ || !grid3d_->pc_info_->cloud)
+    return false;
+
+  pcl::toROSMsg(*(grid3d_->pc_info_->cloud), msg);
+  LOG_INFO(g_log, __FUNCTION__<<" "<<__LINE__<<" build pointcloud msg successful. ");
+  return true;
+}
+
+bool Node::buildGridSliceMsg(const double z, nav_msgs::OccupancyGrid& msg) const
+{
+  if (!grid3d_->grid_info_ || !grid3d_->pc_info_)
+    return false;
+
+  if (z < grid3d_->pc_info_->octo_min_z || z > grid3d_->pc_info_->octo_max_z)
+    return false;
+
+  msg.info.map_load_time = ros::Time::now();
+  msg.info.resolution = grid3d_->pc_info_->octo_resol;
+  msg.info.width = grid3d_->grid_info_->size_x;
+  msg.info.height = grid3d_->grid_info_->size_y;
+  msg.info.origin.position.x = 0.;
+  msg.info.origin.position.y = 0.;
+  msg.info.origin.position.z = z;
+  msg.info.origin.orientation.x = 0.;
+  msg.info.origin.orientation.y = 0.;
+  msg.info.origin.orientation.z = 0.;
+  msg.info.origin.orientation.w = 1.;
+
+  /* Extract max probability */
+  const uint32_t init = grid3d_->point2grid(grid3d_->pc_info_->octo_min_x, grid3d_->pc_info_->octo_min_y, z);
+  const uint32_t end = grid3d_->point2grid(grid3d_->pc_info_->octo_max_x, grid3d_->pc_info_->octo_max_y, z);
+  float temp_prob, max_prob = -1.0;
+  auto grid_ptr = grid3d_->grid_info_->grid.data();
+  for (uint32_t i = init; i < end; ++i)
+  {
+    temp_prob = grid_ptr[i].prob;
+    if (temp_prob > max_prob)
+      max_prob = temp_prob;
+  }
+
+  /* Copy data into grid msg and scale the probability to [0, 100] */
+  if (max_prob < 0.000001f)
+    max_prob = 0.000001f;
+  max_prob = 100.f / max_prob;
+  msg.data.resize(end - init);
+  for (uint32_t i = 0; i < msg.data.size(); ++i)
+    msg.data[i] = static_cast<int8_t>(grid_ptr[init + i].prob * max_prob);
+    LOG_INFO(g_log,__FUNCTION__<<" "<<__LINE__<<" build grid slice msg successful. ");
+  return true;
 }
 
 
