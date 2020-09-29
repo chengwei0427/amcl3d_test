@@ -30,7 +30,7 @@ using PointType = pcl::PointXYZI;
 class Grid3dCell
 {
 public:
-  float dist{ -1 }; /*!< Distance */
+  //float dist{ -1 }; //  Distance ,may not used
   float prob{ 0 };  /*!< Probability */
 };
 

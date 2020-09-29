@@ -54,19 +54,11 @@ void Node::spin()
 {
   LOG_INFO(g_log,"starting Node::spin()");
 
-  /*if (parameters_.publish_grid_slice_rate_ != 0 &&
-      buildGridSliceMsg(parameters_.grid_slice_z_, grid_slice_msg_))
-  {
-    grid_slice_msg_.header.frame_id = parameters_.global_frame_id_;
-    grid_slice_pub_ = nh_.advertise<nav_msgs::OccupancyGrid>("grid_slice", 1, true);
-    grid_slice_pub_timer_ =
-        nh_.createTimer(ros::Duration(ros::Rate(parameters_.publish_grid_slice_rate_)), &Node::publishGridSlice, this);
-  }*/
-
   if (parameters_.publish_point_cloud_rate_ != 0 && buildMapPointCloudMsg(map_point_cloud_msg_))
   {
     map_point_cloud_msg_.header.frame_id = parameters_.global_frame_id_;
     map_point_cloud_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("map_point_cloud", 1, true);
+    publishMapPointCloud();
     map_point_cloud_pub_timer_ = nh_.createTimer(ros::Duration(ros::Rate(parameters_.publish_point_cloud_rate_)),
                                                  &Node::publishMapPointCloud, this);
   }
@@ -230,15 +222,13 @@ void Node::readParamFromXML()
 
 void Node::publishMapPointCloud(const ros::TimerEvent&)
 {
+  publishMapPointCloud();
+}
+void Node::publishMapPointCloud()
+{
   map_point_cloud_msg_.header.stamp = ros::Time::now();
   map_point_cloud_pub_.publish(map_point_cloud_msg_);
 }
-
-/*void Node::publishGridSlice(const ros::TimerEvent&)
-{
-  grid_slice_msg_.header.stamp = ros::Time::now();
-  grid_slice_pub_.publish(grid_slice_msg_);
-}*/
 
 void Node::publishParticles()
 {
@@ -533,52 +523,9 @@ tf::Transform Node::getTransformFromAffine3f(const Eigen::Affine3f& tf_pose)
 bool Node::buildMapPointCloudMsg(sensor_msgs::PointCloud2& msg) const
 {
   pcl::toROSMsg(mcl_->getMapCloud(), msg);
-  LOG_INFO(g_log, __FUNCTION__<<" "<<__LINE__<<" build pointcloud msg successful. ");
+  using namespace VSCOMMON;
+  LOG_COUT_INFO(g_log, __FUNCTION__<<" "<<__LINE__<<" build pointcloud msg successful. ");
   return true;
 }
-
-/*bool Node::buildGridSliceMsg(const double z, nav_msgs::OccupancyGrid& msg) const
-{
-  if (!grid3d_->grid_info_ || !grid3d_->pc_info_)
-    return false;
-
-  if (z < grid3d_->pc_info_->octo_min_z || z > grid3d_->pc_info_->octo_max_z)
-    return false;
-
-  msg.info.map_load_time = ros::Time::now();
-  msg.info.resolution = grid3d_->pc_info_->octo_resol;
-  msg.info.width = grid3d_->grid_info_->size_x;
-  msg.info.height = grid3d_->grid_info_->size_y;
-  msg.info.origin.position.x = 0.;
-  msg.info.origin.position.y = 0.;
-  msg.info.origin.position.z = z;
-  msg.info.origin.orientation.x = 0.;
-  msg.info.origin.orientation.y = 0.;
-  msg.info.origin.orientation.z = 0.;
-  msg.info.origin.orientation.w = 1.;
-
-  // Extract max probability 
-  const uint32_t init = grid3d_->point2grid(grid3d_->pc_info_->octo_min_x, grid3d_->pc_info_->octo_min_y, z);
-  const uint32_t end = grid3d_->point2grid(grid3d_->pc_info_->octo_max_x, grid3d_->pc_info_->octo_max_y, z);
-  float temp_prob, max_prob = -1.0;
-  auto grid_ptr = grid3d_->grid_info_->grid.data();
-  for (uint32_t i = init; i < end; ++i)
-  {
-    temp_prob = grid_ptr[i].prob;
-    if (temp_prob > max_prob)
-      max_prob = temp_prob;
-  }
-
-  // Copy data into grid msg and scale the probability to [0, 100] 
-  if (max_prob < 0.000001f)
-    max_prob = 0.000001f;
-  max_prob = 100.f / max_prob;
-  msg.data.resize(end - init);
-  for (uint32_t i = 0; i < msg.data.size(); ++i)
-    msg.data[i] = static_cast<int8_t>(grid_ptr[init + i].prob * max_prob);
-    LOG_INFO(g_log,__FUNCTION__<<" "<<__LINE__<<" build grid slice msg successful. ");
-  return true;
-}*/
-
 
 }  // namespace amcl3d

@@ -158,12 +158,12 @@ Grid3dInfo::Ptr computeGrid(PointCloudInfo::Ptr pc_info, const double sensor_dev
         if (kdtree.nearestKSearch(search_point, 1, point_idx_nkn_search, point_nkn_squared_distance) > 0)
         {
           dist = point_nkn_squared_distance[0];
-          grid_info->grid[index].dist = dist;
+          //grid_info->grid[index].dist = dist;
           grid_info->grid[index].prob = gauss_const1 * expf(-dist * dist * gauss_const2);
         }
         else
         {
-          grid_info->grid[index].dist = -1.0;
+          //grid_info->grid[index].dist = -1.0;
           grid_info->grid[index].prob = 0.0;
         }
       }

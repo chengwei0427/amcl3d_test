@@ -77,6 +77,7 @@ private:
    * the user.
    */
   void publishMapPointCloud(const ros::TimerEvent&);
+  void publishMapPointCloud();
 
   /*! \brief To publish the grid slice.
    *
