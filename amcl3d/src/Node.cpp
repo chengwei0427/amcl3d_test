@@ -459,7 +459,8 @@ bool Node::checkUpdateThresholds()
       b_check_first = false;
       return true;
     }
-
+  if(!mcl_->globalLocalizationDone())
+    return true;
   if (ros::Time::now() < nextupdate_time_)
     return false;
   //  odom increment between last amcl pose and current
@@ -468,6 +469,7 @@ bool Node::checkUpdateThresholds()
   float c_x,c_y,c_z,c_roll,c_pitch,c_yaw;
   pcl::getTranslationAndEulerAngles(odom_increment_eigen_, c_x,c_y,c_z,c_roll,c_pitch,c_yaw);
   /* Check translation threshold */
+
   if(c_x*c_x+c_y*c_y+c_z*c_z > parameters_.d_th_*parameters_.d_th_)
   {
     return true;

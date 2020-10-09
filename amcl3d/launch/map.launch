@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<launch>
+  <node name="map_server" pkg="map_server" type="map_server" output="screen" args="$(find amcl3d)/data/occu.yaml"/>
+
+</launch>

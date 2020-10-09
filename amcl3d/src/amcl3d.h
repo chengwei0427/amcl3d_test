@@ -60,6 +60,11 @@ public:
 
   pcl::PointCloud<PointType> getMapCloud();
 
+  const bool globalLocalizationDone() const
+  {
+    return global_loc_done_;
+  }
+
 private:
   void caculateGlobalNoise(const float f = 1);
 

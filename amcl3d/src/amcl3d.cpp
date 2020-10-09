@@ -52,7 +52,8 @@ namespace amcl3d
     ds_.filter(*cloud_ds);
     
     static bool first_process = true;
-    if(!first_process)
+    //  注释掉另一种likelyhood计算方式
+    /*if(!first_process)
     {
       current_pose = mean_;
       if((current_pose.x-Last_pose.x)*(current_pose.x-Last_pose.x) + (current_pose.y-Last_pose.y)*(current_pose.y-Last_pose.y) > 25)
@@ -60,7 +61,7 @@ namespace amcl3d
         if(grid3d_->updateMap(current_pose.x,current_pose.y,current_pose.z))
           Last_pose = current_pose;
       }
-    }
+    }*/
 
     float _t_x, _t_y, _t_z, _t_roll, _t_pitch, _t_yaw;
     pcl::getTranslationAndEulerAngles(odom_increment, _t_x, _t_y, _t_z, _t_roll, _t_pitch, _t_yaw);
@@ -166,7 +167,7 @@ namespace amcl3d
     const float roll_init, const float pitch_init,const float yaw_init)
   {
     PointType kd_nearest_pt = getMapHeight(x_init,y_init);
-    grid3d_->updateMap(kd_nearest_pt.x,kd_nearest_pt.y,kd_nearest_pt.z);
+    //grid3d_->updateMap(kd_nearest_pt.x,kd_nearest_pt.y,kd_nearest_pt.z);
 
     LOG_INFO(g_log,"find nearest pt: "<< kd_nearest_pt.x<<" "<< kd_nearest_pt.y<<" "<< kd_nearest_pt.z <<" from: "<< x_init<<" "<< y_init<<" "<< z_init);
     set_pose_ = Particle(x_init, y_init, kd_nearest_pt.z, roll_init,pitch_init,yaw_init);

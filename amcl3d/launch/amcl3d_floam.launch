@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
 <launch>
+
   <param name="scan_line" value="16" />
   <param name="use_sim_time" value="true"/>
   <param name="scan_period" value="0.1" />
@@ -11,10 +12,14 @@
   <!-- Visualization -->
   <node pkg="rviz" type="rviz" name="rviz" args="-d $(find amcl3d)/rviz/amcl3d_floam.rviz"/>
   <node pkg="tf" type="static_transform_publisher" name="base_link_to_velodyne" args="0 0 0 0 0 0     /base_link    /velodyne   10" />
+  <node pkg="tf" type="static_transform_publisher" name="map_to_wrold" args="0 0 0 0 0 0     /map    /world   10" />
+  <node name="map_server" pkg="map_server" type="map_server" output="screen" args="$(find amcl3d)/data/occu.yaml"/>
+
 
   <node pkg="amcl3d" type="floam_odomEstimation_amcl3d" name="floam_odomEstimation_amcl3d" output="screen"/>
   <node pkg="amcl3d" type="floam_laserProcessing_amcl3d" name="floam_laserProcessing_amcl3d" output="screen"/>
   
+  <!-- <include file="$(find amcl3d)/launch/map.launch"/> -->
   <include file="$(find amcl3d)/launch/amcl3d.launch">
     <arg name="map_name_path"   value="$(find amcl3d)/data/"/>
     <arg name="init_x"          value="0"/>
@@ -25,5 +30,6 @@
     <arg name="alpha"           value="0.5"/>
     <arg name="take_off_height" value="-0.10"/>
   </include>
+
 
 </launch>
