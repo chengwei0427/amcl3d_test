@@ -178,14 +178,17 @@ bool Grid3d::open(const std::string& map_path, const double sensor_dev)
     grid_path = map_path.substr(0, map_path.find(".bt")) + ".grid";
   if (map_path.compare(map_path.length() - 3, 3, ".ot") == 0)
     grid_path = map_path.substr(0, map_path.find(".ot")) + ".grid";*/
+  if(VSCOMMON::existFile(grid_path))
+  {
+    if (loadGrid(grid_path, sensor_dev))
+      return true;
+  }
 
-  if (loadGrid(grid_path, sensor_dev))
-    return true;
 
   // Compute the gridMap using kdtree search over the point-cloud 
   LOG_COUT_INFO(g_log,"Computing 3D occupancy grid. This will take some time...");
   VSCOMMON::tic("computeGrid");
-  grid_info_ = computeGrid(pc_info_, sensor_dev);
+  grid_info_ = computeGrid2(pc_info_, sensor_dev);
   LOG_COUT_INFO(g_log,"Computing 3D occupancy grid done! computeGrid takes: "<< VSCOMMON::toc("computeGrid")*1000 <<" ms.");
 
   // Save grid on file 

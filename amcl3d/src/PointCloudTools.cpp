@@ -173,4 +173,84 @@ Grid3dInfo::Ptr computeGrid(PointCloudInfo::Ptr pc_info, const double sensor_dev
   return grid_info;
 }
 
+Grid3dInfo::Ptr computeGrid2(PointCloudInfo::Ptr pc_info, const double sensor_dev)
+{
+  if (!pc_info)
+    throw std::runtime_error("PointCloudInfo is NULL");
+
+  Grid3dInfo::Ptr grid_info(new Grid3dInfo());
+  grid_info->sensor_dev = sensor_dev;
+
+  /* Alloc the 3D grid */
+  const auto octo_size_x = pc_info->octo_max_x - pc_info->octo_min_x;
+  const auto octo_size_y = pc_info->octo_max_y - pc_info->octo_min_y;
+  const auto octo_size_z = pc_info->octo_max_z - pc_info->octo_min_z;
+  grid_info->size_x = static_cast<uint32_t>(ceil(octo_size_x / pc_info->octo_resol));
+  grid_info->size_y = static_cast<uint32_t>(ceil(octo_size_y / pc_info->octo_resol));
+  grid_info->size_z = static_cast<uint32_t>(ceil(octo_size_z / pc_info->octo_resol));
+
+  grid_info->step_y = grid_info->size_x;
+  grid_info->step_z = grid_info->size_x * grid_info->size_y;
+
+  const auto grid_size = grid_info->size_x * grid_info->size_y * grid_info->size_z;
+  grid_info->grid.resize(grid_size);
+  std::cout<<"grid size: "<< grid_size<<std::endl;
+  
+  /* Compute the distance to the closest point of the grid */
+  const float gauss_const1 = static_cast<float>(1. / (grid_info->sensor_dev * sqrt(2 * M_PI)));
+  const float gauss_const2 = static_cast<float>(1. / (2. * grid_info->sensor_dev * grid_info->sensor_dev));
+  uint32_t index;
+  float dist;
+  PointType search_point;
+
+  for(auto pt:*pc_info->cloud)
+  {
+    uint32_t ix = static_cast<uint32_t>((pt.x - pc_info->octo_min_x)/pc_info->octo_resol);
+    uint32_t iy = static_cast<uint32_t>((pt.y - pc_info->octo_min_y)/pc_info->octo_resol);
+    uint32_t iz = static_cast<uint32_t>((pt.z - pc_info->octo_min_z)/pc_info->octo_resol);
+    #ifdef TTTTT
+    index = ix + iy * grid_info->step_y + iz * grid_info->step_z;
+
+    search_point.x = pc_info->octo_min_x + ix*pc_info->octo_resol;
+    search_point.y = pc_info->octo_min_y + iy*pc_info->octo_resol;
+    search_point.z = pc_info->octo_min_z + iz*pc_info->octo_resol;
+
+    dist = std::sqrt((search_point.x - pt.x)*(search_point.x - pt.x)
+                      + (search_point.y - pt.y)*(search_point.y - pt.y)
+                      + (search_point.z - pt.z)*(search_point.z - pt.z));
+
+    grid_info->grid[index].prob = gauss_const1 * expf(-dist * dist * gauss_const2);
+    #else
+    int xx,yy,zz;
+    for(int i = -1;i <=1;i++)
+    {
+      xx = ix +i;
+      if(xx < 0 || xx >= grid_info->size_x) continue;
+      for(int j = -1;j <=1;j++)
+      {
+        yy = iy+j;
+        if(yy < 0|| yy >= grid_info->size_y) continue;
+        for(int k = -1;k <= 1;k++)
+        {
+          zz = iz + k;
+          if(zz < 0|| zz > grid_info->size_z) continue;
+          index = xx + yy * grid_info->step_y + zz * grid_info->step_z;
+          if(index < 0 || index >= grid_size) continue;
+          search_point.x = pc_info->octo_min_x + xx*pc_info->octo_resol;
+          search_point.y = pc_info->octo_min_y + yy*pc_info->octo_resol;
+          search_point.z = pc_info->octo_min_z + zz*pc_info->octo_resol;
+          dist = std::sqrt((search_point.x - pt.x)*(search_point.x - pt.x)
+                  + (search_point.y - pt.y)*(search_point.y - pt.y)
+                  + (search_point.z - pt.z)*(search_point.z - pt.z));
+
+          grid_info->grid[index].prob = (gauss_const1 * expf(-dist * dist * gauss_const2) > grid_info->grid[index].prob)?(gauss_const1 * expf(-dist * dist * gauss_const2)):grid_info->grid[index].prob;
+        }
+      }
+    }
+    #endif
+  }
+
+  return grid_info;
+}
+
 }  // namespace amcl3d

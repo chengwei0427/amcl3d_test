@@ -101,4 +101,6 @@ PointCloudInfo::Ptr computePointCloud(pcl::PointCloud<PointType>::Ptr inputCloud
  */
 Grid3dInfo::Ptr computeGrid(PointCloudInfo::Ptr pc_info, const double sensor_dev);
 
+Grid3dInfo::Ptr computeGrid2(PointCloudInfo::Ptr pc_info, const double sensor_dev);
+
 }  // namespace amcl3d
