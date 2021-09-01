@@ -1,5 +1,10 @@
 # amcl3d_test
 
+### Acknowledgements
+
+This just a test demo. And maintenance may not be updated.
+
+See the [blog](https://blog.csdn.net/u012700322/article/details/120032339) for the algorithm flow.
 
 ### Overview
 
@@ -30,7 +35,7 @@ The amcl3d package has been tested under [ROS] Kinetic and Ubuntu 16.04.
 To build from source, clone the latest version from this repository into your catkin workspace and compile the package using
 
      cd catkin_workspace/src
-     git clone https://github.com/fada-catec/amcl3d.git
+     git clone https://github.com/chengwei0427/amcl3d_test.git
      cd ../
      catkin build
 
