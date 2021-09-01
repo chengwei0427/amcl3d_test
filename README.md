@@ -8,6 +8,8 @@ See the [blog](https://blog.csdn.net/u012700322/article/details/120032339) for t
 
 ### Overview
 
+![image](https://github.com/chengwei0427/amcl3d_test/blob/master/doc/flow.png)
+
 This is a package is a **"Adaptive Monte-Carlo Localization in 3D"**.
 
 It is a particle filter that estimates the localization of a robot moving in a 3D environment.
